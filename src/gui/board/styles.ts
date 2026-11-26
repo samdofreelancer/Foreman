@@ -20,5 +20,7 @@ export const boardStyles = `
 .foreman-dialog small { color:var(--danger); }
 .foreman-model-fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .foreman-dialog-actions { display:flex; justify-content:flex-end; gap:8px; }
+.foreman-show-more { min-height:32px; }
+.foreman-warning { display:flex; justify-content:space-between; gap:12px; margin-bottom:12px; border:1px solid var(--border); border-radius:6px; padding:8px; }
 @media (max-width: 700px) { .foreman-toolbar { flex-wrap:wrap; } .foreman-column { flex-basis:260px; min-width:260px; } }
 `

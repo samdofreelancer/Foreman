@@ -1,4 +1,4 @@
-import { For, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import type { SetupContext } from "@opencode/plugin/gui"
 import type { definition } from "../definition"
 import type { Task, TaskColumn } from "../../domain/task"
@@ -13,6 +13,7 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
   const [projectDirectory, setProjectDirectory] = createSignal<string>()
   const [search, setSearch] = createSignal("")
   const [searchInput, setSearchInput] = createSignal("")
+  const [warningVisible, setWarningVisible] = createSignal(false)
 
   createEffect(() => {
     const value = searchInput()
@@ -35,6 +36,12 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
 
   return (
     <div class="foreman-board">
+      <Show when={warningVisible()}>
+        <div class="foreman-warning">
+          Task data could not be loaded. The board is starting empty.
+          <button type="button" onClick={() => setWarningVisible(false)}>Dismiss</button>
+        </div>
+      </Show>
       <div class="foreman-toolbar">
         <button
           class="foreman-primary"

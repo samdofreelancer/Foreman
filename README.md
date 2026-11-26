@@ -4,7 +4,7 @@ A task board for OpenCode Desktop. A card is a **task**, not a chat. Dragging a 
 to **Ready** starts an OpenCode session for it; the board follows that run and tells
 you when it is working, waiting on you, or broken — until you move it to **Done**.
 
-> **Status: specification only.** No implementation exists yet.
+> **Status: P1 implementation in progress.** P2 and P3 are specification only.
 > Phases: `specs/001-board/` (P1), `specs/002-run/` (P2), `specs/003-intervene/` (P3).
 
 ## The loop
@@ -33,8 +33,19 @@ DONE ◄── drag after you have read the outcome   (P2)
 | P3 — Intervene | [spec](specs/003-intervene/spec.md) | [plan](specs/003-intervene/plan.md) | [tasks](specs/003-intervene/tasks.md) |
 
 Shared entity model: [specs/001-board/data-model.md](specs/001-board/data-model.md).
-Install and run: [specs/001-board/quickstart.md](specs/001-board/quickstart.md).
 Project rules: [.specify/memory/constitution.md](.specify/memory/constitution.md).
+
+## P1 local development
+
+```powershell
+npm install
+npm test -- --run
+npm run build
+npm run watch
+```
+
+Open `/settings?tab=foreman` in OpenCode Desktop or use `foreman.open-board`
+from the command palette. The watch build reloads the local GUI plugin.
 
 ## Fixed decisions
 
