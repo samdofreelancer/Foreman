@@ -20,7 +20,7 @@ export const boardStyles = `
 .foreman-card-meta { display:flex; flex-direction:column; gap:4px; color:var(--text-muted,#667085); font-size:11px; }
 .foreman-column-name { text-transform:capitalize; }
 .foreman-empty { min-height:110px; display:grid; place-items:center; border:1px dashed var(--border,#dfe3ea); border-radius:8px; color:var(--text-muted,#667085); font-size:12px; background:var(--surface,#fff); }
-.foreman-dialog { display:flex; flex-direction:column; gap:12px; width:min(560px,calc(100vw - 32px)); max-height:min(680px,calc(100vh - 32px)); box-sizing:border-box; overflow-y:auto; border:1px solid var(--border,#dfe3ea); border-radius:12px; background:var(--surface,Canvas); color:inherit; padding:20px; box-shadow:0 18px 48px rgba(16,24,40,.18); }
+.foreman-dialog { display:flex; flex-direction:column; gap:12px; width:100%; box-sizing:border-box; }
 .foreman-dialog h2 { margin:0 0 2px; font-size:18px; }
 .foreman-dialog label { display:flex; flex-direction:column; gap:6px; }
 .foreman-dialog label > span { font-size:12px; font-weight:600; }

@@ -113,14 +113,42 @@ export function TaskDialog(props: {
   }
 
   return (
-    <form
-      class="foreman-dialog"
-      onSubmit={(event) => {
-        event.preventDefault()
-        save()
-      }}
+    <props.ctx.ui.Dialog
+      title={props.task ? "Edit task" : "New task"}
+      size="large"
+      footer={
+        <>
+          <Show when={props.task}>
+            <props.ctx.ui.Button
+              variant="danger"
+              onClick={() => void remove()}
+            >
+              Delete
+            </props.ctx.ui.Button>
+          </Show>
+          <props.ctx.ui.Button
+            variant="neutral"
+            onClick={() => props.dialog.close()}
+          >
+            Cancel
+          </props.ctx.ui.Button>
+          <props.ctx.ui.Button
+            variant="contrast"
+            disabled={!validation().valid}
+            onClick={save}
+          >
+            Save
+          </props.ctx.ui.Button>
+        </>
+      }
     >
-      <h2>{props.task ? "Edit task" : "New task"}</h2>
+      <form
+        class="foreman-dialog"
+        onSubmit={(event) => {
+          event.preventDefault()
+          save()
+        }}
+      >
       <label>
         <span>Title</span>
         <input value={title()} onInput={(event) => setTitle(event.currentTarget.value)} />
@@ -203,13 +231,7 @@ export function TaskDialog(props: {
           </select>
         </label>
       </Show>
-      <div class="foreman-dialog-actions">
-        <Show when={props.task}>
-          <button type="button" onClick={() => void remove()}>Delete</button>
-        </Show>
-        <button type="button" onClick={() => props.dialog.close()}>Cancel</button>
-        <button class="foreman-primary" type="submit" disabled={!validation().valid}>Save</button>
-      </div>
-    </form>
+      </form>
+    </props.ctx.ui.Dialog>
   )
 }
