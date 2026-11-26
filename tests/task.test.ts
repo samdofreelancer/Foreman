@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createTask, updateTask, validateTaskInput } from "../src/domain/task"
+import { createTask, deleteTask, updateTask, validateTaskInput } from "../src/domain/task"
 
 describe("task domain", () => {
   it("creates a Todo task from title and project", () => {
@@ -27,5 +27,35 @@ describe("task domain", () => {
 
   it("rejects empty title and project", () => {
     expect(validateTaskInput({ title: "", projectDirectory: "" }).valid).toBe(false)
+  })
+
+  it("trims titles and accepts titles up to 200 characters", () => {
+    expect(validateTaskInput({ title: "x".repeat(201), projectDirectory: "/projects/a" }).valid).toBe(false)
+    expect(validateTaskInput({ title: "  Valid title  ", projectDirectory: "/projects/a" }).valid).toBe(true)
+  })
+
+  it("requires an absolute POSIX or Windows project directory", () => {
+    expect(validateTaskInput({ title: "Task", projectDirectory: "relative" }).valid).toBe(false)
+    expect(validateTaskInput({ title: "Task", projectDirectory: "C:\\work\\foreman" }).valid).toBe(true)
+  })
+
+  it("preserves id and createdAt while updating immutable fields are ignored", () => {
+    const task = createTask(
+      { title: "Original", projectDirectory: "/projects/foreman" },
+      100,
+      "task-1",
+    )
+    const updated = updateTask(task, { id: "changed", createdAt: 1, title: "Renamed" } as never, 200)
+    expect(updated.id).toBe("task-1")
+    expect(updated.createdAt).toBe(100)
+    expect(updated.title).toBe("Renamed")
+  })
+
+  it("deletes only the matching task", () => {
+    const tasks = [
+      createTask({ title: "One", projectDirectory: "/projects/a" }, 100, "task-1"),
+      createTask({ title: "Two", projectDirectory: "/projects/b" }, 100, "task-2"),
+    ]
+    expect(deleteTask(tasks, "task-1").map((task) => task.id)).toEqual(["task-2"])
   })
 })
