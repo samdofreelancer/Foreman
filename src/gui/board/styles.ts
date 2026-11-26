@@ -36,6 +36,18 @@ export const boardStyles = `
 .foreman-show-more { min-height:32px; border:1px solid var(--border,#dfe3ea); border-radius:8px; background:var(--surface,#fff); color:inherit; }
 .foreman-warning { display:flex; justify-content:space-between; gap:12px; margin-bottom:12px; border:1px solid var(--border,#dfe3ea); border-radius:8px; padding:10px; }
 .foreman-project-missing { color:var(--danger,#d92d20); }
+.foreman-run-state { width:max-content; border-radius:999px; padding:2px 7px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+.foreman-run-working { background:rgba(37,99,235,.12); color:#2563eb; }
+.foreman-run-unread { background:rgba(245,158,11,.16); color:#b45309; }
+.foreman-run-reviewed { background:rgba(16,185,129,.12); color:#047857; }
+.foreman-run-missing,.foreman-run-disconnected { background:rgba(107,114,128,.12); color:#4b5563; }
+.foreman-follow-up { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; margin-top:4px; }
+.foreman-follow-up input { min-width:0; height:32px; box-sizing:border-box; border:1px solid var(--border,#dfe3ea); border-radius:7px; background:var(--surface,#fff); color:inherit; padding:0 8px; }
+.foreman-follow-up button { height:32px; border:1px solid var(--accent,#4f46e5); border-radius:7px; background:var(--accent,#4f46e5); color:#fff; padding:0 9px; }
+.foreman-follow-up button:disabled { opacity:.45; }
+.foreman-follow-up-error { grid-column:1/-1; color:var(--danger,#d92d20); font-size:11px; }
+.foreman-prompt-retry { height:30px; border:1px solid var(--border,#dfe3ea); border-radius:7px; background:var(--surface,#fff); color:inherit; font-size:11px; }
+.foreman-column-hovered { border-color:var(--accent,#4f46e5); box-shadow:0 0 0 3px var(--accent-ring,rgba(79,70,229,.12)); }
 @media (max-width:900px) { .foreman-columns { grid-template-columns:repeat(4,220px); } }
 @media (max-width:700px) { .foreman-toolbar { grid-template-columns:1fr 1fr; } .foreman-toolbar .foreman-primary { grid-column:1/-1; width:max-content; } }
 `

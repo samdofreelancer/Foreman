@@ -47,6 +47,14 @@ npm run watch
 Open `/settings?tab=foreman` in OpenCode Desktop or use `foreman.open-board`
 from the command palette. The watch build reloads the local GUI plugin.
 
+## P2 run flow
+
+- Drag a Todo/Ready task onto Ready, or save the P1 task dialog with column Ready, to create one OpenCode session and send the prompt.
+- Doing cards show working, unread, reviewed, missing, or disconnected state.
+- Click a card to open and focus its existing session tab.
+- Send follow-ups from the card; they use queue delivery while the run is working.
+- Drag reviewed tasks to Done. A working run requires confirmation because the session continues.
+
 ## Fixed decisions
 
 - **Form factor:** one OpenCode Desktop GUI plugin, package `foreman`, id `foreman`.
