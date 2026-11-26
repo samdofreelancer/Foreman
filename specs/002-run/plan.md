@@ -6,11 +6,13 @@
 
 ## Summary
 
-Turn Ready into work. Dropping a task on Ready creates one OpenCode session in the task's
-directory through the app's own client, sends the description as the first prompt, stores
-the session id, and moves the card to Doing. Doing then derives its badge from live
-session data, opening a card focuses the session tab, follow-ups go to the same session,
-and Done closes the loop. P2 still never approves a permission or answers a question.
+Turn Ready into work. Dropping a task on Ready (or, from P1's dialog, setting it to Ready)
+creates one OpenCode session in the task's directory through the app's own client, sends
+the description as the first prompt, stores the session id, and moves the card to Doing.
+Doing then derives its badge from live session data, opening a card focuses the session
+tab, follow-ups go to the same session, and Done closes the loop. P2 also adds
+drag-and-drop, which P1 omits, and still never approves a permission or answers a
+question.
 
 ## Technical Context
 
@@ -36,11 +38,15 @@ task; the app's server id is `sidecar`
 
 ## Constitution Check
 
-1. **No database access** — pass: all run data comes from the OpenCode client and its
-   synced server store.
-2. **Owner-in-the-loop** — pass: permissions and questions stay untouched in P2.
-3. **Idempotent starts** — enforced by the start guard design below.
-4. **Degrade, don't crash** — pass: unavailable server renders a disconnected state.
+Gates from [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md):
+
+1. **Article II — never touch the database** — pass: all run data comes from the OpenCode
+   client and its synced server store.
+2. **Article I — owner decides** — pass: permissions and questions stay untouched in P2;
+   every run starts from a drop or a dialog save.
+3. **Article III — one task, one session** — enforced by the start guard and the stored id.
+4. **Article V — degrade** — pass: an unavailable server renders a disconnected state.
+5. **Article VIII — isolate the API** — pass: all client calls live in `gui/run/`.
 
 ## Project Structure
 
@@ -48,7 +54,8 @@ task; the app's server id is `sidecar`
 src/
 ├── domain/
 │   ├── run-state.ts            # pure RunState derivation + precedence
-│   └── start-guard.ts          # pure "may this task start?" decision
+│   ├── start-guard.ts          # pure "may this task start?" decision
+│   └── drag.ts                 # pure drop resolution (origin, target, allowed)
 ├── gui/
 │   ├── run/
 │   │   ├── session-info.ts     # reactive read for a task's session
@@ -56,10 +63,12 @@ src/
 │   └── board/
 │       ├── TaskCard.tsx        # gains run badge, click-to-open, elapsed time
 │       ├── FollowUp.tsx        # follow-up composer on a Doing card
+│       ├── drag.ts             # DOM drag state and handlers
 │       └── Board.tsx           # Ready drop starts; Done confirms while running
 tests/
 ├── run-state.test.ts
-└── start-guard.test.ts
+├── start-guard.test.ts
+└── drag.test.ts
 ```
 
 **Structure Decision**: the run machinery is split into a pure decision layer
@@ -120,6 +129,28 @@ Dropping on Done sets `finishedAt`. If the session is working, `ctx.dialogs.conf
 explains that the run continues. Moving back to Todo/Ready clears `finishedAt` and keeps
 `sessionID`.
 
+### Drag and drop
+
+P1 ships without drag, so P2 owns the whole interaction:
+
+```ts
+// domain/drag.ts — pure, tested
+resolveDrop(drag: { taskID: string; from: Column }, target: Column) =>
+  | { kind: "move"; taskID: string; to: Column }
+  | { kind: "start"; taskID: string }
+  | { kind: "reject"; reason: "managed" | "same" | "outside" }
+```
+
+- `target === "ready"` → `start`, routed through `startTask` (never a bare column write).
+- `target === "doing"` → `reject` with "Doing is managed by runs".
+- `target === from` or a drop outside a column → `reject`, no write.
+- Otherwise → `move`, writing `column` and `updatedAt` (plus `finishedAt` rules for Done).
+
+DOM handling lives in `gui/board/drag.ts`: `draggable` on the card, `dragstart` sets the
+payload, columns handle `dragover`/`dragleave` with a highlight class, `drop` calls
+`resolveDrop`, `Escape` and `dragend` clear the state. The dialog select from P1 stays as
+the keyboard and screen-reader path, so drag is an accelerator, never a requirement.
+
 ## Research notes (verified against OpenCode 2.x)
 
 - `client.session.create({ title, agent, model, location: { directory } })` accepts
@@ -131,6 +162,8 @@ explains that the run continues. Moving back to Todo/Ready clears `finishedAt` a
   duplicating it.
 - Server events include `session.created` and `session.execution.succeeded`; state
   derivation does not depend on event names, only on the reactive store.
+- HTML5 drag events are enough: the board renders inside a single Settings page, so no
+  iframe or cross-window drag is involved.
 
 ## Risks
 
@@ -141,6 +174,8 @@ explains that the run continues. Moving back to Todo/Ready clears `finishedAt` a
 | Reactive store misses an update | 3 s fallback timer while the card is in Doing |
 | Provider signed out | Surface the client error on the card; never swallow it |
 | Sidecar restart changes client identity | Read `ctx.servers.get("sidecar")` on every call, never cache the client |
+| Drag on a scrolled column strip loses the target | Keep the highlight on `dragover` only, cancel on `dragleave`, and test at 900 px |
+| Drop on Ready races the dialog path | Both paths call the same guard in `startTask` |
 
 ## Out of scope for P2
 

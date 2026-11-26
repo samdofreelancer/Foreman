@@ -11,9 +11,9 @@ you when it is working, waiting on you, or broken — until you move it to **Don
 
 ```
 TODO  backlog you write
-  │ drag
+  │ drag                                    (P1: column is set from the task dialog)
   ▼
-READY ──► create session + prompt ──► DOING
+READY ──► create session + prompt ──► DOING   (P2)
                                        ├─ working          agent is running
                                        ├─ action required  permission / question
                                        │    └─ Approve, Always, Reject / answer ──► DOING
@@ -21,7 +21,7 @@ READY ──► create session + prompt ──► DOING
                                        │    └─ open + follow-up ──► DOING
                                        └─ error            run failed
                                             └─ analyse lesson / retry ──► DOING
-DONE ◄── drag after you have read the outcome
+DONE ◄── drag after you have read the outcome   (P2)
 ```
 
 ## Docs
@@ -33,19 +33,26 @@ DONE ◄── drag after you have read the outcome
 | P3 — Intervene | [spec](specs/003-intervene/spec.md) | [plan](specs/003-intervene/plan.md) | [tasks](specs/003-intervene/tasks.md) |
 
 Shared entity model: [specs/001-board/data-model.md](specs/001-board/data-model.md).
+Install and run: [specs/001-board/quickstart.md](specs/001-board/quickstart.md).
+Project rules: [.specify/memory/constitution.md](.specify/memory/constitution.md).
 
 ## Fixed decisions
 
 - **Form factor:** one OpenCode Desktop GUI plugin, package `foreman`, id `foreman`.
-- **Surface:** a side panel (`region: "side"`) opened by `foreman.open-board`, which the
-  user can drag to the bottom pane. The SDK has no full-window page; a Settings page
-  could mirror the board later (P3 polish, optional).
+- **Surface:** a **dedicated board page** — a `SettingsPage` with id `foreman`, rendered at
+  `/settings?tab=foreman` and opened by the command `foreman.open-board`, which calls
+  `ctx.layout.settings("foreman")`. The GUI API has no standalone window; a dedicated page
+  is the closest surface that belongs to no single session. A compact side-panel mirror is
+  a later, optional addition — not part of P1.
 - **Store:** `Store.global` in the plugin, one array of tasks. The database is never
   touched directly.
 - **Card ↔ session:** one task owns at most one session. Follow-ups and retries stay in
   that session.
 - **Board scope:** tasks from every project; each card shows its project.
-- **P1 never starts a session.** Automation begins in P2.
+- **P1 is render + create/edit/delete.** No drag-and-drop and no session work: a column is
+  changed from the task's edit dialog. Dragging, and Ready starting a run, arrive in P2.
+- **Lessons are files:** P3 writes `docs/lessons/<date>-<slug>.md` inside the task's
+  project. ai-memory is not written.
 
 ## Constraints
 
@@ -58,7 +65,5 @@ Shared entity model: [specs/001-board/data-model.md](specs/001-board/data-model.
 
 ## Open questions (need owner approval)
 
-1. Panel (proposed) vs. Settings page for the board surface.
-2. Concurrent runs: unlimited (proposed) vs. a configurable cap.
-3. Lesson destination: markdown file in the task project (proposed) vs. ai-memory page.
-4. UI copy language: English first (proposed), Vietnamese locale after.
+1. Concurrent runs: unlimited (proposed) vs. a configurable cap.
+2. UI copy language: English first (proposed), Vietnamese locale after.

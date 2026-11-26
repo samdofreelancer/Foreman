@@ -6,11 +6,11 @@
 
 ## Summary
 
-Ship the first OpenCode Desktop GUI plugin for Foreman: a registered side panel that
-renders four columns of locally stored tasks, with create, edit, delete, drag-between-
-columns, filtering and persistence. P1 never talks to a session. It establishes the
-package, the build, the Effect-Schema task model, the store, and the board components
-that P2 and P3 extend.
+Ship the first OpenCode Desktop GUI plugin for Foreman: a dedicated board page that
+renders four columns of locally stored tasks, with create, edit, delete, a column field,
+filtering and persistence. P1 never talks to a session. It establishes the package, the
+build, the Effect-Schema task model, the store, and the board components that P2 and P3
+extend.
 
 ## Technical Context
 
@@ -31,24 +31,25 @@ not load GUI plugins; the plugin must fail quietly there.
 
 **Project Type**: Single-package desktop GUI plugin (no server part, no TUI part).
 
-**Performance Goals**: board opens under 300 ms with 100 tasks; drag feedback under one
-frame; no layout thrash while cards move.
+**Performance Goals**: board opens under 300 ms with 100 tasks; a column change renders
+under one frame; no layout thrash while cards move between columns.
 
 **Constraints**: `./gui-experimental` must be one prebuilt CommonJS file; the host
-provides `effect`, `solid-js`, `@opencode/*` and must not be bundled; the panel's width
-is bounded by the side region (the user can drag the tab to the bottom pane).
+provides `effect`, `solid-js`, `@opencode/*` and must not be bundled; the board renders
+inside a Settings page, so it must respect the app's settings layout and scroll container.
 
 **Scale/Scope**: personal board, up to a few hundred tasks, 4 columns, 6 components.
 
 ## Constitution Check
 
-No constitution file exists in this repository (fresh clone). The gates applied for this
-phase:
+Gates from [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md):
 
-1. **No session side effects in P1** — pass: P1 imports no session API.
-2. **No direct database access** — pass: state lives in the plugin store only.
-3. **Host-provided modules only** — pass: the Vite `gui()` preset enforces this.
-4. **Degrade, don't crash** — pass: corrupt store and missing projects render warnings.
+1. **Article I — owner decides** — pass: P1 has no automated action at all.
+2. **Article II — never touch the database** — pass: state lives in the plugin store only.
+3. **Article IV — pure decisions** — pass: grouping, ordering, filtering and validation live
+   in `src/domain/` with tests.
+4. **Article V — degrade** — pass: a corrupt store and missing projects render warnings.
+5. **Article VIII — isolate the API** — pass: every host import stays under `src/gui/`.
 
 ## Project Structure
 
@@ -59,6 +60,7 @@ specs/001-board/
 ├── spec.md          # this feature's specification
 ├── plan.md          # this file
 ├── data-model.md    # shared entity model
+├── quickstart.md    # install, build, and verify the board
 └── tasks.md         # implementation tasks
 ```
 
@@ -72,12 +74,13 @@ src/
 ├── gui.tsx                     # ./gui-experimental entry: Plugin.define
 ├── gui/
 │   ├── definition.ts           # id, stores, i18n
-│   ├── window.tsx              # setup: Panel + Command + MenuItem
+│   ├── window.tsx              # setup: SettingsPage + Command
 │   └── board/
-│       ├── Board.tsx           # columns, scroll, filter bar
-│       ├── Column.tsx          # drop target, header count, empty state
+│       ├── BoardPage.tsx       # page shell inside ui.SettingsLayout
+│       ├── Board.tsx           # columns, horizontal scroll, filter bar
+│       ├── Column.tsx          # header count, empty state, card list
 │       ├── TaskCard.tsx        # card render
-│       ├── TaskDialog.tsx      # create/edit form
+│       ├── TaskDialog.tsx      # create/edit form incl. the column field
 │       └── styles.ts           # inline CSS via ctx.add(Styles)
 ├── domain/
 │   ├── task.ts                 # Task schema, factory, validation
@@ -97,18 +100,32 @@ without the desktop host.
 
 ## Decisions
 
-### D1 — Board surface: side panel (proposed)
+### D1 — Board surface: a dedicated page (decided)
 
-The SDK has no full-window page registry. Available surfaces are a session side panel, a
-Settings page, and four slots. A board needs horizontal room and should be reachable
-while working, so P1 registers `Panel` with `region: "side"` and a wide `width`, plus a
-command and a `session.panel` menu item. The host lets the user drag the tab into the
-bottom pane, which gives full width.
+The GUI API has no standalone window: `Panel` is scoped to a session's side region, the
+four `Slot`s are strips inside the window, and `SettingsPage` is the only full-width page a
+plugin can own. The owner asked for one board of its own, not a panel attached to whichever
+chat is open, so P1 registers:
 
-Alternatives rejected: Settings page (roomy but buried in settings and semantically
-wrong); `window.bottom` slot (full width but too short for four columns).
+```ts
+ctx.add(SettingsPage, {
+  id: "foreman",                    // /settings?tab=foreman
+  icon: "layout",
+  get title() { return ctx.t("board.title") },
+  render: () => <BoardPage />,
+})
+```
 
-**Needs owner confirmation** — see README open question 1.
+and a command `foreman.open-board` whose `run` is `ctx.layout.settings("foreman")`. The
+page renders inside `ui.SettingsLayout`, so it inherits the app's chrome, scrolling and
+search.
+
+Trade-off accepted: the board replaces the chat while it is open; the command is one
+keystroke away. A compact side-panel mirror is a later optional addition, not P1.
+
+Alternatives rejected: session side panel (belongs to one session, too narrow for four
+columns); `window.bottom` slot (always visible but too short); a separate Electron window
+(no API).
 
 ### D2 — State: `Store.global`
 
@@ -125,17 +142,19 @@ caught and reset to `[]` with a warning.
 ### D3 — Command and keybind
 
 Command id `open-board`, published as `foreman.open-board`, keybind `mod+shift+b`,
-`section: "session"`, `enabled` when a session is routed. It toggles the panel with
-`ctx.layout.toggle(\`${ctx.id}:board\`, session)`. A `session.panel` menu item opens it
-too, so it is discoverable from the side region launcher.
+`section: "navigation"`, always enabled. Its `run` calls
+`ctx.layout.settings("foreman")`; a second invocation focuses the same page. No panel key
+and no menu item are needed, because the page is reachable from any screen.
 
-### D4 — Drag and drop
+### D4 — Column changes, no drag and drop
 
-HTML5 drag events on cards and columns (`draggable`, `dragstart`, `dragover`,
-`drop`, `dragend`), with a CSS class for the active drop target. On drop, P1 writes the
-new column and `updatedAt`. Doing is a drop target but rejects drops with a tooltip
-("Doing is managed by runs"), which keeps the visual model honest and avoids a dead
-column.
+P1 has no drag-and-drop. The `column` field lives in `TaskDialog` as a select with Todo,
+Ready and Done (Doing is disabled with the reason "Doing is managed by runs"), and saving
+writes `column` plus `updatedAt`; moving to Done sets `finishedAt`, moving out of Done
+clears it. The card reacts immediately because the board reads the store reactively.
+
+Drag-and-drop is deferred to P2, where Ready has a consequence (it starts the run). P2 adds
+the drag layer on top of the same store writes, so the dialog stays a working fallback.
 
 ### D5 — Project picker
 
@@ -153,10 +172,11 @@ English only in P1 (`i18n.en`). UI strings live in `i18n/en.ts` and are read thr
 - GUI entry must build to one `.cjs` via `gui()` from `@opencode/plugin/gui/vite`.
 - The plugin id comes from the package name when there is no server part; `foreman` is
   safe (it is not in the reserved `opencode` namespace).
-- `ctx.add(Panel, …)` requires a stable `PanelTab` object returned from `list`, with
-  titles read from getters.
-- `ctx.layout.toggle/open/close` work by key `<plugin id>:<tab id>`.
-- `ctx.commands`/`ctx.keybinds` are host-provided; no extra dependency is needed.
+- `SettingsPage.id` doubles as the settings tab value (`/settings?tab=foreman`) and the
+  argument to `ctx.layout.settings(page)`.
+- `SettingsPage` takes a stable `render`; its `title`, `icon` and `entries` are read from
+  getters so the language and search follow.
+- `Command.section` accepts `"navigation"`; `run` may open the settings page directly.
 - Local plugin directories reload the GUI on every rebuild (`vite build --watch`).
 
 ## Risks
@@ -164,11 +184,13 @@ English only in P1 (`i18n.en`). UI strings live in `i18n/en.ts` and are read thr
 | Risk | Mitigation |
 |---|---|
 | Experimental GUI API changes | Pin the OpenCode version in development notes; keep host calls inside `gui/` wrappers |
-| Panel too narrow for four columns | Columns scroll horizontally; document the drag-to-bottom-pane route |
+| Settings layout constrains width or scroll | Render inside `ui.SettingsLayout`; columns scroll horizontally and are tested at 900 px |
+| Owner cannot find the board inside Settings | Command `foreman.open-board` with `mod+shift+b`, plus a settings search entry |
 | Store shape changes between phases | Single `Task` schema in `domain/task.ts`, additive optional fields only |
-| Solid reactivity mistakes (destructured props) | Lint rule/review note: read props where used, never destructure panel inputs |
+| Solid reactivity mistakes (destructured props) | Read props where used; never destructure |
 
 ## Out of scope for P1
 
-Session creation, live run state, permissions, questions, error handling, lessons,
-multi-user sync, task templates, recurring tasks.
+Drag-and-drop between columns (arrives in P2), session creation, live run state,
+permissions, questions, error handling, lessons, multi-user sync, task templates,
+recurring tasks.

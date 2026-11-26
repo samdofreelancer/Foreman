@@ -47,30 +47,31 @@ against OpenCode Desktop; there is no automated Electron harness in this phase.
 
 ---
 
-## Phase 3: User Story 1 — See every task on one board (P1) 🎯 MVP
+## Phase 3: User Story 1 — See every task on one board (High) 🎯 MVP
 
-**Goal**: four columns render stored tasks with counts, empty states and project labels.
+**Goal**: four columns render stored tasks with counts, empty states and project labels
+on a dedicated page.
 
 **Independent Test**: seed 3 tasks across 2 projects, open `foreman.open-board`, confirm
 placement, labels and counts.
 
-- [ ] T014 [US1] Register the `Panel` in `src/gui/window.tsx` (`region: "side"`,
-  `width`, stable `PanelTab`, `list` reading `input.open`).
-- [ ] T015 [P] [US1] Build `src/gui/board/Board.tsx`: header, filter row placeholder,
-  four columns, horizontal scroll.
+- [ ] T014 [US1] Register the `SettingsPage` in `src/gui/window.tsx` (`id: "foreman"`,
+  icon, getter `title`, `render` → `BoardPage`).
+- [ ] T015 [P] [US1] Build `src/gui/board/BoardPage.tsx` and `Board.tsx`: `ui.SettingsLayout`
+  shell, header, filter row placeholder, four columns, horizontal scroll.
 - [ ] T016 [P] [US1] Build `src/gui/board/Column.tsx` (header, count, empty state) and
   `src/gui/board/TaskCard.tsx`.
 - [ ] T017 [P] [US1] Add `src/gui/board/styles.ts` and register it with `ctx.add(Styles)`.
-- [ ] T018 [US1] Register `Command` `open-board` (`mod+shift+b`, section `session`) and a
-  `session.panel` `MenuItem` that toggles `${ctx.id}:board`.
-- [ ] T019 [US1] Manual acceptance: empty board, seeded board, narrow panel, bottom-pane
-  drag, app restart.
+- [ ] T018 [US1] Register `Command` `open-board` (`mod+shift+b`, section `navigation`) whose
+  `run` calls `ctx.layout.settings("foreman")`.
+- [ ] T019 [US1] Manual acceptance: empty board, seeded board, narrow window, deep link
+  `/settings?tab=foreman`, app restart.
 
 **Checkpoint**: the board is a usable read-only view of stored tasks.
 
 ---
 
-## Phase 4: User Story 2 — Create a task (P1)
+## Phase 4: User Story 2 — Create a task (High)
 
 - [ ] T020 [US2] Build `src/gui/board/TaskDialog.tsx` create mode (title, description,
   project, agent, model).
@@ -85,32 +86,34 @@ placement, labels and counts.
 
 ---
 
-## Phase 5: User Story 3 — Edit or delete a task (P2)
+## Phase 5: User Story 3 — Edit or delete a task (Medium)
 
-- [ ] T025 [US3] Reuse `TaskDialog` in edit mode; keep `id` and `createdAt` immutable.
+- [ ] T025 [US3] Reuse `TaskDialog` in edit mode; keep `id` and `createdAt` immutable; add
+  the `column` select (Todo/Ready/Done, Doing disabled) with `finishedAt` bookkeeping.
 - [ ] T026 [US3] Add delete with `ctx.dialogs.confirm` (`danger: true`) and store removal.
-- [ ] T027 [P] [US3] Unit tests for immutable-field protection and delete semantics.
-- [ ] T028 [US3] Manual acceptance: edit every field, cancel delete, confirm delete,
-  restart.
+- [ ] T027 [P] [US3] Unit tests for immutable-field protection, column transitions and
+  delete semantics.
+- [ ] T028 [US3] Manual acceptance: edit every field incl. column, cancel delete, confirm
+  delete, restart.
 
 **Checkpoint**: tasks are fully maintainable.
 
 ---
 
-## Phase 6: User Story 4 — Move tasks between columns (P2)
+## Phase 6: User Story 4 — Set a task's column (Medium)
 
-- [ ] T029 [US4] Add drag state to `Board.tsx` (dragged id, hovered column).
-- [ ] T030 [US4] Implement `dragstart`, `dragover`, `dragleave`, `drop`, `dragend` on
-  cards and columns; persist `column` and `updatedAt` on drop.
-- [ ] T031 [US4] Reject drops on Doing with a tooltip; reject drops outside a column.
-- [ ] T032 [US4] Manual acceptance: Todo→Ready→Done→Todo, cancelled drag, restart,
-  narrow-width horizontal scroll.
+- [ ] T029 [US4] Wire the `column` select to `updatedAt` and `finishedAt` rules; render the
+  card in its new column immediately.
+- [ ] T030 [US4] Unit tests for `finishedAt` set/clear and ordering after a column change.
+- [ ] T031 [US4] Ensure a cancelled dialog leaves `column` unchanged (no optimistic write).
+- [ ] T032 [US4] Manual acceptance: Todo→Ready→Done→Todo, cancel edit, restart, narrow
+  window.
 
-**Checkpoint**: the board behaves like a board.
+**Checkpoint**: columns are settable and persistent; drag arrives in P2.
 
 ---
 
-## Phase 7: User Story 5 — Find a task (P3)
+## Phase 7: User Story 5 — Find a task (Low)
 
 - [ ] T033 [US5] Add the filter bar (project select + debounced search) to `Board.tsx`.
 - [ ] T034 [P] [US5] Unit tests for combined filter + search in `tests/filters.test.ts`.
@@ -136,16 +139,16 @@ placement, labels and counts.
 - Setup (Phase 1) blocks everything.
 - Foundational (Phase 2) blocks all user stories.
 - US1 blocks US2–US5 (they extend the board).
-- US4 depends on US2 only for having tasks to drag.
+- US4 depends on US2 only for having tasks to move.
 - Polish depends on all stories.
 
 ## Parallel opportunities
 
 - T004, T005, T010, T013 run in parallel.
-- T015, T016, T017 run in parallel once T014's panel shape is agreed.
+- T015, T016, T017 run in parallel once T014's page shape is agreed.
 - T023, T027, T034 can be written in parallel with their UI.
 
 ## MVP
 
-Phases 1–3 deliver a board that renders tasks. That is the P1 demo. Stop there, validate,
-then proceed to US2/US3/US4/US5 in priority order.
+Phases 1–3 deliver a board that renders tasks on a dedicated page. That is the P1 demo.
+Stop there, validate, then proceed to US2/US3/US4/US5 in priority order.

@@ -94,7 +94,7 @@ the transcript, and the card in Doing.
 
 ---
 
-## Phase 6: User Story 5 — Finish the task (P2)
+## Phase 6: User Story 5 — Finish the task (Medium)
 
 - [ ] T025 [US5] On Done drop: confirm when the session is working, then set
   `finishedAt`.
@@ -106,13 +106,30 @@ the transcript, and the card in Doing.
 
 ---
 
-## Phase 7: Polish
+## Phase 7: Drag and drop (P2 addition)
 
-- [ ] T028 [P] Show model and agent on the card tooltip; show project path in the detail.
-- [ ] T029 [P] Handle long titles/errors with truncation and tooltips.
-- [ ] T030 Reduce re-renders: memoise column grouping; verify 20 running cards stay smooth.
-- [ ] T031 [P] Document the P2 flow and failure recovery in `README.md`.
-- [ ] T032 Run the full P2 quickstart and record results.
+**Goal**: cards move by dragging, without losing the dialog fallback.
+
+- [ ] T028 Drag state module: `src/gui/board/drag.ts` with draggable ids, hovered column,
+  and a pure `resolveDrop(state, target)` helper tested in `tests/drag.test.ts`.
+- [ ] T029 `dragstart`/`dragover`/`dragleave`/`drop`/`dragend` on cards and columns, with a
+  highlight class for the active target and `Escape` cancelling.
+- [ ] T030 Drop on Ready calls `startTask` (T006) instead of writing the column directly;
+  drop on Doing shows "Doing is managed by runs" and keeps the origin column.
+- [ ] T031 Manual acceptance: Todo→Ready starts, Todo→Done, Doing→Todo, cancelled drag,
+  drop outside, narrow-window scroll during drag, keyboard alternative via the dialog.
+
+**Checkpoint**: the board feels like a board, and P1's dialog still works.
+
+---
+
+## Phase 8: Polish
+
+- [ ] T032 [P] Show model and agent on the card tooltip; show project path in the detail.
+- [ ] T033 [P] Handle long titles/errors with truncation and tooltips.
+- [ ] T034 Reduce re-renders: memoise column grouping; verify 20 running cards stay smooth.
+- [ ] T035 [P] Document the P2 flow, drag rules and failure recovery in `README.md`.
+- [ ] T036 Run the full P2 quickstart and record results.
 
 ---
 
@@ -122,14 +139,15 @@ the transcript, and the card in Doing.
 - US1 blocks US2, US3, US4, US5 (they need a session to talk about).
 - US2 blocks US3's badge verification but not US3's tab opening.
 - US4 and US5 are independent of each other.
+- Phase 7 depends on US1 (Ready must start a run) and US5 (`finishedAt` rules).
 
 ## Parallel opportunities
 
 - T001 and T002 are parallel; T003 and T004 are parallel after them.
 - T012, T021, T025 touch different files and can proceed together once T006 lands.
-- T028–T031 are independent polish items.
+- T028 can be written before T029–T031; T032–T035 are independent polish items.
 
 ## MVP
 
 Phase 2 alone (Ready → session + prompt) is a demonstrable increment even before badges
-exist. Validate it, then add US2–US5.
+exist. Validate it, then add US2–US5, then Phase 7's drag layer.

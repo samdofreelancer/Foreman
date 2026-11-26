@@ -37,13 +37,17 @@ the OpenCode database; lesson writes are confined to the task's project director
 
 ## Constitution Check
 
-1. **Owner-in-the-loop** — pass: every reply originates from a click; no rule engine.
-2. **No database access** — pass: requests come from the client API, answers go back through
-   it.
-3. **One session per task** — pass: retries reuse `sessionID`.
-4. **Degrade, don't crash** — pass: expired request, missing form and read-only project all
+Gates from [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md):
+
+1. **Article I — owner decides** — pass: every reply originates from a click; no rule engine.
+2. **Article II — never touch the database** — pass: requests come from the client API,
+   answers go back through it.
+3. **Article III — one task, one session** — pass: retries reuse `sessionID`.
+4. **Article V — degrade** — pass: expired request, missing form and read-only project all
    render as recoverable states.
-5. **Auditability** — pass: `answeredAt`/decision recorded locally; transcript untouched.
+5. **Article VIII — isolate the API** — pass: every client call lives in `gui/run/`.
+6. **Article VI — transcript is authoritative** — pass: decisions are recorded locally, the
+   session stays the source of truth.
 
 ## Project Structure
 

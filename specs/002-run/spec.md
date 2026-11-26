@@ -10,9 +10,13 @@
 moves to Doing. Doing shows whether the agent is working or whether the result is unread.
 Reading it can lead to a follow-up; the owner drags it to Done when satisfied."
 
+P2 also introduces drag-and-drop, which P1 deliberately omits. The column field in the
+edit dialog stays, as the accessible alternative and the escape hatch when dragging is
+awkward.
+
 ## User Scenarios & Testing
 
-### User Story 1 - Ready starts the work (Priority: P1)
+### User Story 1 - Ready starts the work (Priority: High)
 
 The owner drags a task from Todo to Ready. Foreman creates an OpenCode session in the
 task's project, sends the task description as the first prompt, stores the session id on
@@ -39,7 +43,7 @@ session exists with the task title, receives the prompt, and the card moves to D
 
 ---
 
-### User Story 2 - See what the run is doing (Priority: P1)
+### User Story 2 - See what the run is doing (Priority: High)
 
 While a task is in Doing, the card shows its run state: `working` while the agent is
 running, `unread` when a turn finished and the owner has not opened it, `reviewed` once
@@ -64,7 +68,7 @@ session and confirm it becomes `reviewed` without a manual refresh.
 
 ---
 
-### User Story 3 - Read the result (Priority: P1)
+### User Story 3 - Read the result (Priority: High)
 
 Clicking a card opens its session as a focused tab, so the owner reads the real
 transcript in the app's normal UI.
@@ -84,7 +88,7 @@ the card turns `reviewed`.
 
 ---
 
-### User Story 4 - Continue the conversation (Priority: P2)
+### User Story 4 - Continue the conversation (Priority: Medium)
 
 From the card, the owner sends a follow-up prompt to the same session without leaving the
 board.
@@ -104,7 +108,7 @@ lands in the same session and the card returns to `working`.
 
 ---
 
-### User Story 5 - Finish the task (Priority: P2)
+### User Story 5 - Finish the task (Priority: Medium)
 
 The owner drags a Doing card to Done once satisfied; Done records the finish time. Moving
 it back to Todo or Ready is allowed and keeps the same session.
@@ -137,6 +141,12 @@ column; drag it back to Todo and confirm the session id is unchanged.
 - Two tasks pointing at the same project run concurrently: allowed.
 - The owner moves a running card back to Ready: the session keeps running; P2 does not
   stop it (stopping arrives in P3).
+- A card is dragged while its start is already in flight: the drop is ignored and the card
+  returns to its stored column.
+- A drag starts on a narrow window: the column strip scrolls while dragging and the drag is
+  not cancelled by the scroll.
+- A card is moved with the keyboard through the edit dialog while a drag is in progress:
+  the last committed write wins.
 
 ## Requirements
 
@@ -165,6 +175,11 @@ column; drag it back to Todo and confirm the session id is unchanged.
   activity time for the rest.
 - **FR-014**: The system MUST survive an unavailable sidecar server by showing a
   disconnected state instead of failing the board.
+- **FR-015**: The system MUST implement drag-and-drop between columns: dropping a task on
+  Ready starts its run, dropping on Doing is rejected with a visible explanation, and a
+  cancelled drag leaves the column unchanged.
+- **FR-016**: Drag-and-drop MUST NOT be the only way to change a column; the edit dialog's
+  column select remains available, including for keyboard and screen-reader users.
 
 ### Key Entities
 

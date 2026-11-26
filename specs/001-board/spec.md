@@ -11,11 +11,12 @@ P1 is the board and the task store only; nothing runs yet."
 
 ## User Scenarios & Testing
 
-### User Story 1 - See every task on one board (Priority: P1)
+### User Story 1 - See every task on one board (Priority: High)
 
-The owner opens the Foreman board from any session and sees four columns — Todo,
-Ready, Doing, Done — containing the tasks they created across all their projects. Each
-card shows the task title, its project, when it last changed, and its column.
+The owner opens the Foreman board from the command palette and gets a dedicated page —
+not a session panel — showing four columns: Todo, Ready, Doing, Done, filled with the
+tasks they created across all their projects. Each card shows the task title, its
+project, when it last changed, and its column.
 
 **Why this priority**: Without the board there is no product; every later phase adds
 behaviour to cards that must already exist.
@@ -29,12 +30,12 @@ confirm they appear in the correct columns with the correct project labels.
    with an explicit empty state and a "New task" action.
 2. **Given** tasks exist in Todo, Ready and Done, **When** the board opens, **Then**
    each task shows in its own column and Doing renders a placeholder.
-3. **Given** the board is open, **When** the owner drags the panel tab to the bottom
-   pane, **Then** the board still renders the same columns in a wider layout.
+3. **Given** a narrow window, **When** the board opens, **Then** all four columns render
+   with horizontal scrolling and no clipped card text.
 
 ---
 
-### User Story 2 - Create a task (Priority: P1)
+### User Story 2 - Create a task (Priority: High)
 
 The owner creates a task from the board: title, description (the prompt body), target
 project directory, and optionally agent and model.
@@ -55,10 +56,10 @@ in Todo and survives an app restart.
 
 ---
 
-### User Story 3 - Edit or delete a task (Priority: P2)
+### User Story 3 - Edit or delete a task (Priority: Medium)
 
-The owner renames a task, rewrites its description, changes its project or agent, or
-deletes it.
+The owner renames a task, rewrites its description, changes its project, agent, model, or
+column, or deletes it.
 
 **Why this priority**: Tasks change as thinking changes; without edit/delete the board
 rots.
@@ -76,30 +77,34 @@ reflects both operations after restart.
 
 ---
 
-### User Story 4 - Move tasks between columns (Priority: P2)
+### User Story 4 - Set a task's column (Priority: Medium)
 
-The owner drags a task between Todo, Ready and Done. Doing is not a manual column in P1.
+The owner changes a task's column from the task dialog, among Todo, Ready and Done. Doing
+is not settable by hand: a card reaches Doing only when a run starts (P2). There is no
+drag-and-drop in P1; the card is a record of intent, and the dialog is how intent changes.
 
-**Why this priority**: Moving cards is the board's core interaction, and its persistence
-is what makes Ready meaningful in P2.
+**Why this priority**: The column must be settable before P2 can attach a run to Ready,
+and persistence of the column is what makes P2 possible at all.
 
-**Independent Test**: Drag a task Todo → Ready → Done, restart, and confirm the column
-survives.
+**Independent Test**: Change a task from Todo to Ready, then to Done, restart, and confirm
+the column survives each change.
 
 **Acceptance Scenarios**:
 
-1. **Given** a Todo task, **When** it is dropped on Ready, **Then** it renders in Ready
-   and the store records `column: "ready"`.
-2. **Given** a Done task, **When** it is dropped back on Todo, **Then** it returns to
-   Todo.
-3. **Given** a drag is cancelled or dropped outside a column, **Then** the task keeps
-   its column.
-4. **Given** the board is narrow, **When** the owner drags a card, **Then** the columns
-   scroll horizontally without losing the drag.
+1. **Given** a Todo task, **When** its dialog's column is set to Ready, **Then** the card
+   renders in Ready and the store records `column: "ready"`.
+2. **Given** a Done task, **When** its column is set back to Todo, **Then** it returns to
+   Todo and `finishedAt` is cleared.
+3. **Given** a task being edited, **When** the dialog is cancelled, **Then** the column is
+   unchanged.
+4. **Given** a wide or narrow window, **When** a column is changed, **Then** the card
+   moves immediately with no full-page reload.
+5. **Given** the task dialog, **Then** Doing is shown as unavailable with the reason
+   "Doing is managed by runs".
 
 ---
 
-### User Story 5 - Find a task (Priority: P3)
+### User Story 5 - Find a task (Priority: Low)
 
 The owner filters the board by project and searches by title.
 
@@ -128,7 +133,7 @@ partial title; confirm only matching cards render.
 - More than 100 tasks: rendering stays responsive because columns virtualise or cap at
   50 visible cards with a "show more" control.
 - Two tasks with the same title are allowed; ids keep them distinct.
-- The panel is opened before the store has loaded: a short loading state, then the board.
+- The board is opened before the store has loaded: a short loading state, then the board.
 - The board is opened on the web app (GUI plugins do not load): out of scope, but the
   plugin must not throw during load.
 
@@ -136,24 +141,26 @@ partial title; confirm only matching cards render.
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST contribute a board panel to a session's side region and a
-  command `foreman.open-board`.
+- **FR-001**: The system MUST contribute a dedicated board page (`SettingsPage` id
+  `foreman`, reachable at `/settings?tab=foreman`) and a command `foreman.open-board`
+  that opens it with `ctx.layout.settings("foreman")`.
 - **FR-002**: The board MUST render four columns in this order: Todo, Ready, Doing, Done.
 - **FR-003**: Each card MUST show title, project name, updated time, and column.
 - **FR-004**: Users MUST be able to create a task with title and project directory;
   description, agent, and model are optional.
 - **FR-005**: Users MUST be able to edit every task field except its id.
 - **FR-006**: Users MUST be able to delete a task after an explicit confirmation.
-- **FR-007**: Users MUST be able to move a task between Todo, Ready and Done by dragging.
+- **FR-007**: Users MUST be able to set a task's column to Todo, Ready or Done from its
+  edit dialog. Doing MUST NOT be settable by hand, and P1 MUST NOT implement drag-and-drop.
 - **FR-008**: The system MUST persist all tasks across app restarts.
 - **FR-009**: The board MUST show column counts and explicit empty states.
 - **FR-010**: Users MUST be able to filter by project and search by title.
 - **FR-011**: The system MUST NOT start, stop, or modify any OpenCode session in P1.
-- **FR-012**: Every task MUST carry a stable id that survives edits and moves.
+- **FR-012**: Every task MUST carry a stable id that survives edits and column changes.
 - **FR-013**: Column order within a column MUST be deterministic and stable across
   restarts (updated time descending, then id).
-- **FR-014**: The board MUST be usable when the side region is narrow: columns scroll
-  horizontally and cards remain readable.
+- **FR-014**: The board MUST be usable at any window width: columns scroll horizontally
+  and cards remain readable.
 - **FR-015**: The plugin MUST load without a server part and without touching the
   OpenCode database.
 
@@ -172,7 +179,7 @@ partial title; confirm only matching cards render.
 - **SC-001**: A new user can create the first task and see it on the board in under 60
   seconds without reading documentation.
 - **SC-002**: Tasks survive a full app restart with zero field loss (10/10 tasks).
-- **SC-003**: Dragging 20 cards in sequence leaves 20/20 in the intended columns after
+- **SC-003**: Changing 20 tasks' columns leaves 20/20 in the intended columns after
   restart.
 - **SC-004**: The board opens in under 300 ms with 100 stored tasks.
 - **SC-005**: No board action ever creates, prompts, or deletes an OpenCode session.
@@ -180,6 +187,8 @@ partial title; confirm only matching cards render.
 ## Assumptions
 
 - The owner uses OpenCode Desktop 2.x where GUI plugins are supported.
+- The board is a dedicated page inside Settings (`/settings?tab=foreman`), because the GUI
+  API has no standalone window. Reaching it is one command away from any session.
 - One board serves all projects; project grouping is a label and filter, not a separate
   board per project.
 - Tasks are personal and local; no sharing, sync, or multi-user editing.

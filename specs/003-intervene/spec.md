@@ -12,7 +12,7 @@ it continues. Error: I ask what went wrong, what fixes it, and how to prevent it
 
 ## User Scenarios & Testing
 
-### User Story 1 - See when a run needs me (Priority: P1)
+### User Story 1 - See when a run needs me (Priority: High)
 
 A Doing card shows a distinct badge when its session is blocked on a permission request or
 an open question, so the owner never has to hunt through sessions to find what is waiting.
@@ -36,7 +36,7 @@ everything else in P3 depends on this signal.
 
 ---
 
-### User Story 2 - Approve from the card (Priority: P1)
+### User Story 2 - Approve from the card (Priority: High)
 
 Without leaving the board the owner answers the pending permission request: once, always,
 or reject, and can see what the request is for (action, resources, source).
@@ -62,7 +62,7 @@ run resumes and the badge returns to `working`.
 
 ---
 
-### User Story 3 - Answer a question (Priority: P1)
+### User Story 3 - Answer a question (Priority: High)
 
 When the agent asks the owner a structured question, the card renders the form's fields
 and the owner answers them from the card.
@@ -87,7 +87,7 @@ from the card and confirm the run resumes.
 
 ---
 
-### User Story 4 - See and understand a failure (Priority: P1)
+### User Story 4 - See and understand a failure (Priority: High)
 
 A failed run is marked `error` with a short readable reason and the actions available
 (retry the prompt, open the session, or analyse the lesson).
@@ -113,7 +113,7 @@ card shows `error`, the message, and a retry action.
 
 ---
 
-### User Story 5 - Learn from the failure (Priority: P2)
+### User Story 5 - Learn from the failure (Priority: Medium)
 
 From an error card the owner runs a lesson analysis: Foreman prompts the agent in the same
 session to explain what failed, how to fix it, and how to prevent it, then stores the
@@ -141,7 +141,7 @@ sent, the three sections appear on the card, and a markdown file exists in the p
 
 ---
 
-### User Story 6 - Stop a run (Priority: P3)
+### User Story 6 - Stop a run (Priority: Low)
 
 The owner can interrupt a running task from its card and decide whether the card becomes
 `stopped` (and can be restarted) or returns to Ready.
