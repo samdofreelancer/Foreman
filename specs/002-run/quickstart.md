@@ -1,5 +1,10 @@
 # Quickstart — Foreman Run (P2)
 
+## Verification status
+
+- Automated: `npm run typecheck`, `npm test -- --run`, and `npm run build` pass.
+- Desktop live-session acceptance: pending; require a real signed-in provider and manual session execution.
+
 ## Build
 
 ```powershell
