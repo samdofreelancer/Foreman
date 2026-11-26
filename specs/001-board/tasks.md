@@ -61,7 +61,7 @@ placement, labels and counts.
   shell, header, filter row placeholder, four columns, horizontal scroll.
 - [ ] T016 [P] [US1] Build `src/gui/board/Column.tsx` (header, count, empty state) and
   `src/gui/board/TaskCard.tsx`.
-- [ ] T017 [P] [US1] Add `src/gui/board/styles.ts` and register it with `ctx.add(Styles)`.
+- [ ] T017 [P] [US1] Add `src/gui/board/styles.ts` and register it with `ctx.add(Style)`.
 - [ ] T018 [US1] Register `Command` `open-board` (`mod+shift+b`, section `navigation`) whose
   `run` calls `ctx.layout.settings("foreman")`.
 - [ ] T019 [US1] Manual acceptance: empty board, seeded board, narrow window, deep link

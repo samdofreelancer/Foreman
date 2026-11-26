@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 
-export const TaskColumn = Schema.Literal("todo", "ready", "doing", "done")
+export const TaskColumn = Schema.Literals(["todo", "ready", "doing", "done"])
 export type TaskColumn = typeof TaskColumn.Type
 
 export const TaskModel = Schema.Struct({
@@ -103,4 +103,20 @@ export function updateTask(existing: Task, patch: TaskPatch, now: number): Task 
 
 export function deleteTask(tasks: Task[], id: string): Task[] {
   return tasks.filter((task) => task.id !== id)
+}
+
+export function safeTaskArray(value: unknown): Task[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is Task =>
+    typeof item === "object"
+    && item !== null
+    && typeof (item as Record<string, unknown>).id === "string"
+    && typeof (item as Record<string, unknown>).title === "string"
+    && typeof (item as Record<string, unknown>).projectDirectory === "string"
+    && ["todo", "ready", "doing", "done"].includes(
+      String((item as Record<string, unknown>).column),
+    )
+    && typeof (item as Record<string, unknown>).createdAt === "number"
+    && typeof (item as Record<string, unknown>).updatedAt === "number"
+  )
 }

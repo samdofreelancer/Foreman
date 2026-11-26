@@ -38,18 +38,21 @@ export function TaskDialog(props: {
   const [modelID, setModelID] = createSignal(props.task?.model?.id ?? "")
   const [column, setColumn] = createSignal<TaskColumn>(props.task?.column ?? "todo")
   const [projects, setProjects] = createSignal<ProjectOption[]>([])
+  const [manualProject, setManualProject] = createSignal(false)
 
   createEffect(() => {
     const sidecar = props.ctx.servers.list()
       .map((id) => props.ctx.servers.get(id))
       .find((server) => server?.builtin)
     if (!sidecar) return
-    void sidecar.client.project.list().then((list) => {
-      setProjects(list.map((project) => ({
-        directory: project.canonical,
-        name: project.name ?? project.canonical,
-      })))
-    })
+    void sidecar.client.project.list()
+      .then((list) => {
+        setProjects(list.map((project) => ({
+          directory: project.canonical,
+          name: project.name ?? project.canonical,
+        })))
+      })
+      .catch(() => setProjects([]))
   })
 
   const validation = () => validateTaskInput({
@@ -112,14 +115,42 @@ export function TaskDialog(props: {
   }
 
   return (
-    <form
-      class="foreman-dialog"
-      onSubmit={(event) => {
-        event.preventDefault()
-        save()
-      }}
+    <props.ctx.ui.Dialog
+      title={props.task ? "Edit task" : "New task"}
+      size="large"
+      footer={
+        <>
+          <Show when={props.task}>
+            <props.ctx.ui.Button
+              variant="danger"
+              onClick={() => void remove()}
+            >
+              Delete
+            </props.ctx.ui.Button>
+          </Show>
+          <props.ctx.ui.Button
+            variant="neutral"
+            onClick={() => props.dialog.close()}
+          >
+            Cancel
+          </props.ctx.ui.Button>
+          <props.ctx.ui.Button
+            variant="contrast"
+            disabled={!validation().valid}
+            onClick={save}
+          >
+            Save
+          </props.ctx.ui.Button>
+        </>
+      }
     >
-      <h2>{props.task ? "Edit task" : "New task"}</h2>
+      <form
+        class="foreman-dialog"
+        onSubmit={(event) => {
+          event.preventDefault()
+          save()
+        }}
+      >
       <label>
         <span>Title</span>
         <input value={title()} onInput={(event) => setTitle(event.currentTarget.value)} />
@@ -137,27 +168,40 @@ export function TaskDialog(props: {
       </label>
       <label>
         <span>Project</span>
-        <select
-          value={projectDirectory()}
-          onInput={(event) => {
-            const directory = event.currentTarget.value
-            setProjectDirectory(directory)
-            const selected = projects().find((project) => project.directory === directory)
-            setProjectName(selected?.name ?? "")
-          }}
+        <Show
+          when={manualProject()}
+          fallback={
+            <select
+              value={projectDirectory()}
+              onInput={(event) => {
+                const directory = event.currentTarget.value
+                setProjectDirectory(directory)
+                const selected = projects().find((project) => project.directory === directory)
+                setProjectName(selected?.name ?? "")
+              }}
+            >
+              <option value="">Choose project</option>
+              <For each={projects()}>
+                {(project) => (
+                  <option value={project.directory}>{project.name} - {project.directory}</option>
+                )}
+              </For>
+            </select>
+          }
         >
-          <option value="">Choose project</option>
-          <For each={projects()}>
-            {(project) => (
-              <option value={project.directory}>{project.name} - {project.directory}</option>
-            )}
-          </For>
-        </select>
-        <input
-          value={projectDirectory()}
-          placeholder="Or enter an absolute project directory"
-          onInput={(event) => setProjectDirectory(event.currentTarget.value)}
-        />
+          <input
+            value={projectDirectory()}
+            placeholder="C:\\Users\\name\\project"
+            onInput={(event) => setProjectDirectory(event.currentTarget.value)}
+          />
+        </Show>
+        <button
+          class="foreman-project-mode"
+          type="button"
+          onClick={() => setManualProject((value) => !value)}
+        >
+          {manualProject() ? "Choose from known projects" : "Enter a manual path"}
+        </button>
         <Show when={validation().projectError}>
           {(message) => <small>{message()}</small>}
         </Show>
@@ -189,13 +233,7 @@ export function TaskDialog(props: {
           </select>
         </label>
       </Show>
-      <div class="foreman-dialog-actions">
-        <Show when={props.task}>
-          <button type="button" onClick={() => void remove()}>Delete</button>
-        </Show>
-        <button type="button" onClick={() => props.dialog.close()}>Cancel</button>
-        <button class="foreman-primary" type="submit" disabled={!validation().valid}>Save</button>
-      </div>
-    </form>
+      </form>
+    </props.ctx.ui.Dialog>
   )
 }

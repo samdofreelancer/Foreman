@@ -49,7 +49,7 @@ A local directory is loaded as a GUI plugin when its `package.json` exports
 
 | Check | Expected |
 |---|---|
-| Empty state | Four columns, each with a count of 0 and a "New task" action |
+| Empty state | Four columns, each with a count of 0 and one toolbar "New task" action |
 | Create | Title + project → card appears at the top of Todo |
 | Validation | Empty title or project disables submit and names the reason |
 | Edit | Change title, project, agent, model, column → card updates immediately |

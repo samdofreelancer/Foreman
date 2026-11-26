@@ -3,7 +3,8 @@ import type { SetupContext } from "@opencode/plugin/gui"
 import type { definition } from "../definition"
 import type { Task, TaskColumn } from "../../domain/task"
 import { groupTasks } from "../../domain/columns"
-import { applyTaskFilters } from "../../domain/filters"
+import { applyTaskFilters, reconcileProjectFilter } from "../../domain/filters"
+import { safeTaskArray } from "../../domain/task"
 import { Column } from "./Column"
 import { openTaskDialog } from "./TaskDialog"
 
@@ -22,19 +23,18 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
       .map((id) => props.ctx.servers.get(id))
       .find((server) => server?.builtin)
     if (!sidecar) return
-    void sidecar.client.project.list().then((list) => {
-      setKnownProjectDirectories(list.map((project) => project.canonical))
-      setKnownProjectsLoaded(true)
-    })
+    void sidecar.client.project.list()
+      .then((list) => {
+        setKnownProjectDirectories(list.map((project) => project.canonical))
+        setKnownProjectsLoaded(true)
+      })
+      .catch(() => setKnownProjectsLoaded(true))
   })
 
   createEffect(() => {
     const value = props.ctx.stores.tasks.value
-    const corrupt = !Array.isArray(value) || value.some((task) =>
-      typeof task.id !== "string"
-      || typeof task.title !== "string"
-      || typeof task.projectDirectory !== "string"
-    )
+    const corrupt = !Array.isArray(value)
+      || value.some((task) => !task || typeof task.id !== "string")
     setWarningVisible(corrupt)
   })
 
@@ -44,7 +44,12 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
     onCleanup(() => clearTimeout(timer))
   })
 
-  const tasks = createMemo<Task[]>(() => props.ctx.stores.tasks.value ?? [])
+  const tasks = createMemo<Task[]>(() => safeTaskArray(props.ctx.stores.tasks.value))
+  createEffect(() => {
+    setProjectDirectory((selected) =>
+      reconcileProjectFilter(selected, tasks()),
+    )
+  })
   const filtered = createMemo(() =>
     applyTaskFilters(tasks(), projectDirectory(), search()),
   )

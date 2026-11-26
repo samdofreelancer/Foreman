@@ -7,11 +7,12 @@
   "scripts": {
     "build": "vite build",
     "watch": "vite build --watch",
-    "test": "vitest"
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@opencode/plugin": "^2.0.4",
-    "effect": "^3"
+    "effect": "^4.1.0"
   },
   "devDependencies": {
     "@types/node": "^22",
