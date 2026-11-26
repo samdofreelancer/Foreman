@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { applyTaskFilters, isProjectMissing } from "../src/domain/filters"
+import {
+  applyTaskFilters,
+  isProjectMissing,
+  normalizeProjectDirectory,
+  reconcileProjectFilter,
+} from "../src/domain/filters"
 
 const tasks = [
   { id: "1", title: "Fix login", projectDirectory: "/a", column: "todo" as const, createdAt: 1, updatedAt: 1 },
@@ -27,5 +32,15 @@ describe("filter domain", () => {
   it("detects a task whose project directory is missing", () => {
     expect(isProjectMissing("/projects/a", ["/projects/a", "/projects/b"])).toBe(false)
     expect(isProjectMissing("/projects/c", ["/projects/a", "/projects/b"])).toBe(true)
+  })
+
+  it("clears a stale project filter after its last task is moved or deleted", () => {
+    expect(reconcileProjectFilter("/a", tasks)).toBe("/a")
+    expect(reconcileProjectFilter("/c", tasks)).toBeUndefined()
+  })
+
+  it("normalizes Windows project paths for matching", () => {
+    expect(normalizeProjectDirectory("C:\\\\Work\\\\Foreman")).toBe("c:/work/foreman")
+    expect(normalizeProjectDirectory("C:/Work/Foreman")).toBe("c:/work/foreman")
   })
 })

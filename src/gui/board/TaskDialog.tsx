@@ -45,12 +45,14 @@ export function TaskDialog(props: {
       .map((id) => props.ctx.servers.get(id))
       .find((server) => server?.builtin)
     if (!sidecar) return
-    void sidecar.client.project.list().then((list) => {
-      setProjects(list.map((project) => ({
-        directory: project.canonical,
-        name: project.name ?? project.canonical,
-      })))
-    })
+    void sidecar.client.project.list()
+      .then((list) => {
+        setProjects(list.map((project) => ({
+          directory: project.canonical,
+          name: project.name ?? project.canonical,
+        })))
+      })
+      .catch(() => setProjects([]))
   })
 
   const validation = () => validateTaskInput({

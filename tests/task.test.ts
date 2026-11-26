@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createTask, deleteTask, updateTask, validateTaskInput } from "../src/domain/task"
+import { createTask, deleteTask, safeTaskArray, updateTask, validateTaskInput } from "../src/domain/task"
 
 describe("task domain", () => {
   it("creates a Todo task from title and project", () => {
@@ -66,5 +66,10 @@ describe("task domain", () => {
       "task-1",
     )
     expect(() => updateTask(task, { column: "doing" }, 200)).toThrow()
+  })
+
+  it("guards an unexpected store value and resets it to an empty array", () => {
+    expect(safeTaskArray(undefined)).toEqual([])
+    expect(safeTaskArray({ not: "an array" })).toEqual([])
   })
 })
