@@ -7,6 +7,12 @@ import { applyTaskFilters, reconcileProjectFilter } from "../../domain/filters"
 import { safeTaskArray } from "../../domain/task"
 import { Column } from "./Column"
 import { openTaskDialog } from "./TaskDialog"
+import { resolveBoardDrop } from "./drag"
+import { startTask } from "../run/start-task"
+import { setTaskFinished, clearTaskFinished } from "../../domain/task"
+import { deriveRunState } from "../../domain/run-state"
+import { readSessionSnapshot } from "../run/session-info"
+import type { StartTaskContext } from "../run/start-task"
 
 const columns: readonly TaskColumn[] = ["todo", "ready", "doing", "done"]
 
@@ -17,6 +23,9 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
   const [warningVisible, setWarningVisible] = createSignal(false)
   const [knownProjectDirectories, setKnownProjectDirectories] = createSignal<string[]>([])
   const [knownProjectsLoaded, setKnownProjectsLoaded] = createSignal(false)
+  const [dragTaskID, setDragTaskID] = createSignal<string>()
+  const [dragFrom, setDragFrom] = createSignal<Task["column"]>()
+  const [hoveredColumn, setHoveredColumn] = createSignal<Task["column"]>()
 
   createEffect(() => {
     const sidecar = props.ctx.servers.list()
@@ -61,6 +70,98 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
     }
     return [...values.entries()]
   })
+
+  const clearDrag = () => {
+    setDragTaskID(undefined)
+    setDragFrom(undefined)
+    setHoveredColumn(undefined)
+  }
+
+  createEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") clearDrag()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown))
+  })
+
+  const handleDragStart = (task: Task, event: DragEvent) => {
+    setDragTaskID(task.id)
+    setDragFrom(task.column)
+    event.dataTransfer?.setData("text/plain", task.id)
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"
+  }
+
+  const handleDragOver = (column: Task["column"], event: DragEvent) => {
+    event.preventDefault()
+    setHoveredColumn(column)
+  }
+
+  const handleDrop = (column: Task["column"], event: DragEvent) => {
+    event.preventDefault()
+    const resolution = resolveBoardDrop(
+      { taskID: dragTaskID(), from: dragFrom(), hovered: hoveredColumn() },
+      column,
+    )
+    clearDrag()
+
+    if (resolution.kind !== "start" && resolution.kind !== "move") {
+      if (resolution.kind === "reject" && resolution.reason === "managed") {
+        props.ctx.toast.show({ title: "Doing is managed by runs", variant: "error" })
+      }
+      return
+    }
+
+    const task = tasks().find((item) => item.id === resolution.taskID)
+    if (!task) return
+
+    if (resolution.kind === "start") {
+      props.ctx.stores.tasks.update((draft) => {
+        const index = draft.findIndex((item) => item.id === task.id)
+        if (index >= 0 && !draft[index].sessionID) {
+          draft[index].column = "ready"
+          draft[index].updatedAt = Date.now()
+        }
+      })
+      void startTask(
+        props.ctx as unknown as StartTaskContext,
+        { ...task, column: "ready" },
+        task.column,
+      )
+      return
+    }
+
+    void (async () => {
+      if (resolution.to === "done" && task.sessionID) {
+        const snapshot = readSessionSnapshot(props.ctx, task.sessionID)
+        const state = deriveRunState({
+          present: snapshot.present,
+          busy: snapshot.busy,
+          idle: snapshot.idle,
+          viewed: snapshot.viewed,
+        })
+        if (!snapshot.connected || state === "working" || state === "missing") {
+          const confirmed = await props.ctx.dialogs.confirm({
+            title: "The run is still working",
+            confirm: "Move to Done",
+            danger: false,
+          })
+          if (!confirmed) return
+        }
+      }
+
+      props.ctx.stores.tasks.update((draft) => {
+        const index = draft.findIndex((item) => item.id === task.id)
+        if (index < 0) return
+        const now = Date.now()
+        draft[index] = resolution.to === "done"
+          ? setTaskFinished(draft[index], now)
+          : resolution.to === "todo" || resolution.to === "ready"
+            ? clearTaskFinished(draft[index], resolution.to, now)
+            : { ...draft[index], column: resolution.to, updatedAt: now }
+      })
+    })()
+  }
 
   return (
     <div class="foreman-board">
@@ -108,6 +209,12 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
               tasks={groups()[column]}
               knownProjectDirectories={knownProjectDirectories()}
               knownProjectsLoaded={knownProjectsLoaded()}
+              hovered={hoveredColumn() === column}
+              onDragOver={handleDragOver}
+              onDragLeave={() => setHoveredColumn(undefined)}
+              onDrop={handleDrop}
+              onDragStart={handleDragStart}
+              onDragEnd={clearDrag}
             />
           )}
         </For>

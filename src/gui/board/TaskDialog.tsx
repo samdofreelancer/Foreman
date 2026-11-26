@@ -9,6 +9,9 @@ import {
   type Task,
   type TaskColumn,
 } from "../../domain/task"
+import { startTask, type StartTaskContext } from "../run/start-task"
+import { deriveRunState } from "../../domain/run-state"
+import { readSessionSnapshot } from "../run/session-info"
 
 type ProjectOption = {
   directory: string
@@ -60,7 +63,34 @@ export function TaskDialog(props: {
     projectDirectory: projectDirectory(),
   })
 
-  const save = () => {
+  const save = async () => {
+    if (
+      props.task
+      && column() === "done"
+      && props.task.column !== "done"
+      && props.task.sessionID
+    ) {
+      const snapshot = readSessionSnapshot(props.ctx, props.task.sessionID)
+      const state = snapshot.present
+        ? deriveRunState({
+            present: snapshot.present,
+            busy: snapshot.busy,
+            idle: snapshot.idle,
+            viewed: snapshot.viewed,
+          })
+        : "missing"
+      if (!snapshot.connected || state === "working" || state === "missing") {
+        const confirmed = await props.ctx.dialogs.confirm({
+          title: !snapshot.connected
+            ? "The run state is unknown"
+            : state === "working"
+              ? "The run is still working"
+              : "The session is missing",
+          confirm: "Move to Done",
+        })
+        if (!confirmed) return
+      }
+    }
     const result = validation()
     if (!result.valid) return
     const now = Date.now()
@@ -81,6 +111,13 @@ export function TaskDialog(props: {
           column: column(),
         }, now)
         draft[index] = updated
+        if (column() === "ready" && !props.task?.sessionID && props.task?.column !== "ready") {
+          void startTask(
+            props.ctx as unknown as StartTaskContext,
+            { ...updated, column: "ready" },
+            props.task?.column ?? "todo",
+          )
+        }
       })
     } else {
       const task = createTask({
