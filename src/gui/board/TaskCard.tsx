@@ -5,6 +5,7 @@ import { isProjectMissing } from "../../domain/filters"
 import { deriveRunState } from "../../domain/run-state"
 import { readSessionSnapshot } from "../run/session-info"
 import { openTaskDialog } from "./TaskDialog"
+import { FollowUp } from "./FollowUp"
 import { createMemo, createSignal, onCleanup } from "solid-js"
 
 export function TaskCard(props: {
@@ -82,6 +83,9 @@ export function TaskCard(props: {
             </span>
             <span>{activity()}</span>
           </>
+        ) : null}
+        {props.task.sessionID ? (
+          <FollowUp ctx={props.ctx} task={props.task} />
         ) : null}
         <span>{updated}</span>
         <span class="foreman-column-name">{props.task.column}</span>
