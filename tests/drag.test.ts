@@ -38,4 +38,13 @@ describe("resolveDrop", () => {
     expect(source).toContain("snapshot.connected")
     expect(source).toContain("dialogs.confirm")
   })
+
+  it("moves a Todo task to stored Ready before starting it", () => {
+    const source = readFileSync(
+      new URL("../src/gui/board/Board.tsx", import.meta.url),
+      "utf8",
+    )
+    expect(source).toContain('draft[index].column = "ready"')
+    expect(source).toContain("startTask")
+  })
 })

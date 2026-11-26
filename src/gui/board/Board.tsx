@@ -116,6 +116,13 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
     if (!task) return
 
     if (resolution.kind === "start") {
+      props.ctx.stores.tasks.update((draft) => {
+        const index = draft.findIndex((item) => item.id === task.id)
+        if (index >= 0 && !draft[index].sessionID) {
+          draft[index].column = "ready"
+          draft[index].updatedAt = Date.now()
+        }
+      })
       void startTask(
         props.ctx as unknown as StartTaskContext,
         { ...task, column: "ready" },
