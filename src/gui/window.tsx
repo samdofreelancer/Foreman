@@ -12,7 +12,7 @@ export function setup(ctx: SetupContext<typeof definition>) {
   ctx.add(Style, boardStyles)
   ctx.add(SettingsPage, {
     id: "foreman",
-    icon: "layout",
+    icon: "grid-plus",
     get title() {
       return ctx.t("board.title")
     },

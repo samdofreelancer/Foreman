@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 
-export const TaskColumn = Schema.Literal("todo", "ready", "doing", "done")
+export const TaskColumn = Schema.Literals(["todo", "ready", "doing", "done"])
 export type TaskColumn = typeof TaskColumn.Type
 
 export const TaskModel = Schema.Struct({

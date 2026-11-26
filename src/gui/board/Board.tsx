@@ -44,7 +44,7 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
     onCleanup(() => clearTimeout(timer))
   })
 
-  const tasks = createMemo<Task[]>(() => props.ctx.stores.tasks.value ?? [])
+  const tasks = createMemo<Task[]>(() => [...(props.ctx.stores.tasks.value ?? [])])
   const filtered = createMemo(() =>
     applyTaskFilters(tasks(), projectDirectory(), search()),
   )

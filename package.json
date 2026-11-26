@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@opencode/plugin": "^2.0.4",
-    "effect": "^3"
+    "effect": "^4.1.0"
   },
   "devDependencies": {
     "@types/node": "^22",
