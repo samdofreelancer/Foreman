@@ -53,10 +53,43 @@ export function TaskCard(props: {
       { focus: true },
     )
   }
+
+  const retryPrompt = async () => {
+    if (!props.task.sessionID) return
+    const server = props.ctx.servers.get("sidecar")
+    if (!server?.connected) return
+    try {
+      await server.client.session.prompt({
+        sessionID: props.task.sessionID,
+        text: props.task.description?.trim() || props.task.title,
+      })
+      props.ctx.stores.tasks.update((draft) => {
+        const index = draft.findIndex((item) => item.id === props.task.id)
+        if (index >= 0) {
+          draft[index] = {
+            ...draft[index],
+            lastError: undefined,
+            updatedAt: Date.now(),
+          }
+        }
+      })
+    } catch (error) {
+      props.ctx.toast.show({
+        title: "Prompt retry failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "error",
+      })
+    }
+  }
   return (
     <article
       class="foreman-card"
-      title={props.task.title}
+      title={[
+        props.task.title,
+        props.task.projectDirectory,
+        props.task.agent ? `Agent: ${props.task.agent}` : "",
+        props.task.model ? `Model: ${props.task.model.providerID}/${props.task.model.id}` : "",
+      ].filter(Boolean).join(" — ")}
       role="button"
       tabIndex={0}
       draggable={true}
@@ -91,6 +124,18 @@ export function TaskCard(props: {
         ) : null}
         {props.task.sessionID ? (
           <FollowUp ctx={props.ctx} task={props.task} />
+        ) : null}
+        {props.task.lastError && props.task.sessionID ? (
+          <button
+            type="button"
+            class="foreman-prompt-retry"
+            onClick={(event) => {
+              event.stopPropagation()
+              void retryPrompt()
+            }}
+          >
+            Send prompt again
+          </button>
         ) : null}
         <span>{updated}</span>
         <span class="foreman-column-name">{props.task.column}</span>

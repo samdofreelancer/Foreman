@@ -46,6 +46,7 @@ export const boardStyles = `
 .foreman-follow-up button { height:32px; border:1px solid var(--accent,#4f46e5); border-radius:7px; background:var(--accent,#4f46e5); color:#fff; padding:0 9px; }
 .foreman-follow-up button:disabled { opacity:.45; }
 .foreman-follow-up-error { grid-column:1/-1; color:var(--danger,#d92d20); font-size:11px; }
+.foreman-prompt-retry { height:30px; border:1px solid var(--border,#dfe3ea); border-radius:7px; background:var(--surface,#fff); color:inherit; font-size:11px; }
 .foreman-column-hovered { border-color:var(--accent,#4f46e5); box-shadow:0 0 0 3px var(--accent-ring,rgba(79,70,229,.12)); }
 @media (max-width:900px) { .foreman-columns { grid-template-columns:repeat(4,220px); } }
 @media (max-width:700px) { .foreman-toolbar { grid-template-columns:1fr 1fr; } .foreman-toolbar .foreman-primary { grid-column:1/-1; width:max-content; } }

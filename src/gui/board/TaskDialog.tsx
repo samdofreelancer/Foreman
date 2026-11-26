@@ -9,6 +9,7 @@ import {
   type Task,
   type TaskColumn,
 } from "../../domain/task"
+import { startTask, type StartTaskContext } from "../run/start-task"
 
 type ProjectOption = {
   directory: string
@@ -81,6 +82,13 @@ export function TaskDialog(props: {
           column: column(),
         }, now)
         draft[index] = updated
+        if (column() === "ready" && !props.task?.sessionID && props.task?.column !== "ready") {
+          void startTask(
+            props.ctx as unknown as StartTaskContext,
+            { ...updated, column: "ready" },
+            props.task?.column ?? "todo",
+          )
+        }
       })
     } else {
       const task = createTask({
