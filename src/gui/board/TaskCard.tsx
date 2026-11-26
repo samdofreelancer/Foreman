@@ -13,6 +13,8 @@ export function TaskCard(props: {
   task: Task
   knownProjectDirectories: readonly string[]
   knownProjectsLoaded: boolean
+  onDragStart?: (task: Task, event: DragEvent) => void
+  onDragEnd?: () => void
 }) {
   const [tick, setTick] = createSignal(Date.now())
   const timer = setInterval(() => setTick(Date.now()), 3000)
@@ -57,6 +59,9 @@ export function TaskCard(props: {
       title={props.task.title}
       role="button"
       tabIndex={0}
+      draggable={true}
+      onDragStart={(event) => props.onDragStart?.(props.task, event)}
+      onDragEnd={() => props.onDragEnd?.()}
       onClick={() => {
         if (props.task.sessionID) openSession()
         else openTaskDialog(props.ctx, props.task)

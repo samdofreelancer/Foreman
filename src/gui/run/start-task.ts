@@ -32,6 +32,9 @@ export type StartTaskContext = {
     error(message: string): void
     success(message: string): void
   }
+  toast?: {
+    show(options: { title: string; description?: string; variant?: "error" | "success" }): unknown
+  }
 }
 
 export type StartTaskResult =
@@ -91,6 +94,7 @@ export function startTask(
             draft.push(markTaskStartFailed(task, previousColumn, message, Date.now()))
           }
         })
+        ctx.toast?.show({ title: "Failed to start task", description: message, variant: "error" })
         ctx.toasts?.error(message)
         return { kind: "create-failed", error: message }
       }
@@ -110,6 +114,7 @@ export function startTask(
           sessionID: created.id,
           text: task.description?.trim() || task.title,
         })
+        ctx.toast?.show({ title: `Started ${task.title}`, variant: "success" })
         ctx.toasts?.success(`Started ${task.title}`)
         return { kind: "started", sessionID: created.id }
       } catch (error) {
@@ -124,6 +129,7 @@ export function startTask(
             }
           }
         })
+        ctx.toast?.show({ title: "Send prompt again", description: message, variant: "error" })
         ctx.toasts?.error(`Send prompt again: ${message}`)
         return { kind: "prompt-failed", sessionID: created.id, error: message }
       }
