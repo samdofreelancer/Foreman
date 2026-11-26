@@ -5,6 +5,7 @@ import type { Task, TaskColumn } from "../../domain/task"
 import { groupTasks } from "../../domain/columns"
 import { applyTaskFilters } from "../../domain/filters"
 import { Column } from "./Column"
+import { openTaskDialog } from "./TaskDialog"
 
 const columns: readonly TaskColumn[] = ["todo", "ready", "doing", "done"]
 
@@ -28,7 +29,13 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
   return (
     <div class="foreman-board">
       <div class="foreman-toolbar">
-        <button class="foreman-primary" type="button">New task</button>
+        <button
+          class="foreman-primary"
+          type="button"
+          onClick={() => openTaskDialog(props.ctx)}
+        >
+          New task
+        </button>
         <label>
           <span>Project</span>
           <select

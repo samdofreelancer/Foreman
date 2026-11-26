@@ -13,5 +13,12 @@ export const boardStyles = `
 .foreman-card h3 { margin:0 0 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .foreman-card-meta { display:flex; flex-direction:column; gap:3px; color:var(--text-muted); font-size:12px; }
 .foreman-empty { border:1px dashed var(--border); border-radius:6px; padding:24px 10px; text-align:center; color:var(--text-muted); }
+.foreman-card { cursor:pointer; }
+.foreman-dialog { display:flex; flex-direction:column; gap:12px; min-width:min(520px, calc(100vw - 40px)); }
+.foreman-dialog label { display:flex; flex-direction:column; gap:4px; }
+.foreman-dialog input,.foreman-dialog textarea,.foreman-dialog select { min-height:32px; }
+.foreman-dialog small { color:var(--danger); }
+.foreman-model-fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.foreman-dialog-actions { display:flex; justify-content:flex-end; gap:8px; }
 @media (max-width: 700px) { .foreman-toolbar { flex-wrap:wrap; } .foreman-column { flex-basis:260px; min-width:260px; } }
 `
