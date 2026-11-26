@@ -1,0 +1,23 @@
+{
+  "name": "foreman",
+  "type": "module",
+  "exports": {
+    "./gui-experimental": "./dist/gui-experimental.cjs"
+  },
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.4",
+    "effect": "^3"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.7",
+    "vite": "^7",
+    "vite-plugin-solid": "^2.11",
+    "vitest": "^3"
+  }
+}
