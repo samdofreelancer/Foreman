@@ -58,6 +58,7 @@ export function FollowUp(props: {
         void submit()
       }}
       onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
     >
       <input
         value={text()}

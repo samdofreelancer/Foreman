@@ -68,7 +68,16 @@ export function startTask(
     try {
       const server = ctx.servers.get("sidecar")
       if (!server) {
-        throw new Error("OpenCode sidecar is unavailable")
+        const message = "OpenCode sidecar is unavailable"
+        ctx.stores.tasks.update((draft) => {
+          const index = draft.findIndex((item) => item.id === task.id)
+          if (index >= 0 && !draft[index].sessionID && draft[index].column === "ready") {
+            draft[index] = markTaskStartFailed(draft[index], previousColumn, message, Date.now())
+          }
+        })
+        ctx.toast?.show({ title: "Failed to start task", description: message, variant: "error" })
+        ctx.toasts?.error(message)
+        return { kind: "create-failed", error: message }
       }
 
       const stored = ctx.stores.tasks.value?.find((item) => item.id === task.id)

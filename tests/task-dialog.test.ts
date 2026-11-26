@@ -29,4 +29,17 @@ describe("task dialog host integration", () => {
     expect(source).toContain("dialogs.confirm")
     expect(source).toContain('column() === "done"')
   })
+
+  it("does not let follow-up controls trigger card keyboard activation", () => {
+    const card = readFileSync(
+      new URL("../src/gui/board/TaskCard.tsx", import.meta.url),
+      "utf8",
+    )
+    const followUp = readFileSync(
+      new URL("../src/gui/board/FollowUp.tsx", import.meta.url),
+      "utf8",
+    )
+    expect(card).toContain("event.target")
+    expect(followUp).toContain("stopPropagation")
+  })
 })

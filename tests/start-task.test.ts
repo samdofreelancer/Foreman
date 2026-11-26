@@ -24,16 +24,17 @@ function context(
   create: ReturnType<typeof vi.fn>,
   prompt: ReturnType<typeof vi.fn>,
   initial: Task[] = [],
+  serverAvailable = true,
 ) {
   const tasks: Task[] = [...initial]
   return {
     ctx: {
       servers: {
-        get: () => ({
+        get: () => serverAvailable ? ({
           client: {
             session: { create, prompt },
           },
-        }),
+        }) : undefined,
       },
       stores: {
         tasks: {
@@ -146,5 +147,17 @@ describe("startTask", () => {
 
     expect(tasks[0].sessionID).toBe("ses-1")
     expect(tasks[0].column).toBe("todo")
+  })
+
+  it("records a readable failure when the sidecar is unavailable", async () => {
+    resetStartingTasks()
+    const create = vi.fn()
+    const prompt = vi.fn()
+    const input = task()
+    const { ctx, tasks } = context(create, prompt, [input], false)
+    const result = await startTask(ctx, input, "todo")
+    expect(result.kind).toBe("create-failed")
+    expect(tasks[0].column).toBe("todo")
+    expect(tasks[0].lastError).toContain("sidecar")
   })
 })

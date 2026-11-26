@@ -100,6 +100,10 @@ export function TaskCard(props: {
         else openTaskDialog(props.ctx, props.task)
       }}
       onKeyDown={(event) => {
+        if (
+          event.target instanceof HTMLElement
+          && event.target.closest("input,textarea,button,select,a")
+        ) return
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault()
           if (props.task.sessionID) openSession()
