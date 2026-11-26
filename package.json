@@ -5,12 +5,16 @@
     "./gui-experimental": "./dist/gui-experimental.cjs"
   },
   "scripts": {
-    "build": "vite build",
+    "build": "npm run build:plugin-reference",
+    "build:plugin-reference": "vite build",
     "watch": "vite build --watch",
     "test": "vitest",
+    "test:architecture": "vitest run tests/architecture-boundaries.test.ts",
+    "check:architecture": "npm run typecheck && npm run test:architecture",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@opencode/client": "2.4.2",
     "@opencode/plugin": "^2.0.4",
     "effect": "^4.1.0"
   },

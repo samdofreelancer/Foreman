@@ -21,7 +21,7 @@ the plugin architecture.
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5.x, Node.js 22 LTS, SolidJS 1.9, Vite 7
+**Language/Version**: TypeScript 5.x, Node.js 22/24 LTS, SolidJS 1.9, Vite 7
 
 **Primary Dependencies**:
 - `@opencode/client` for the supported OpenCode HTTP API and typed event stream.
@@ -49,8 +49,9 @@ execution state are never copied into SQLite.
 - Security tests for loopback binding, Host/Origin validation, CSRF protection, and
   secret redaction.
 
-**Target Platform**: Local desktop environments with Node.js 22 LTS and OpenCode CLI
-installed. The first release binds to loopback only and opens in a regular browser.
+**Target Platform**: Local desktop environments with Node.js 22 or 24 LTS and OpenCode
+2.4.x runtime installed. The first release binds to loopback only and opens in a regular
+browser. See ADR-0001 for the verified compatibility baseline.
 
 **Project Type**: Single repository, one local Node.js application serving a SolidJS SPA
 and a same-origin JSON API. The browser never connects directly to OpenCode; the server
@@ -258,6 +259,10 @@ other agent runtimes, autonomous dispatch, parallel sessions per task, plugin da
 migration, and a full OpenCode transcript/chat replacement.
 
 ## Research References
+
+- [ADR-0001](../../docs/architecture/decisions/0001-standalone-runtime-baseline.md):
+  accepted Node/OpenCode compatibility matrix, smoke-test evidence, and package script
+  contract.
 
 - [OpenCode JavaScript client](https://opencode.ai/docs/build/client): `@opencode/client`
   is the typed HTTP API client; event subscriptions are live-only and require reconnect

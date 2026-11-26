@@ -23,18 +23,21 @@ Articles: Product Identity, IV, VII, VIII.
 
 - [x] T001 Record the current baseline: `npm test -- --run`, `npm run typecheck`, and
   `npm run build`; retain the results in the feature verification notes.
-- [ ] T002 [P] Add architecture-boundary tests/lint rules that prevent `domain/` from
+- [x] T002 [P] Add architecture-boundary tests/lint rules that prevent `domain/` from
   importing UI, server, SQLite, filesystem/process, or OpenCode modules.
-- [ ] T003 [P] Add a dependency-boundary test that rejects `@opencode/plugin/gui` imports
+- [x] T003 [P] Add a dependency-boundary test that rejects `@opencode/plugin/gui` imports
   from every target standalone entrypoint.
-- [ ] T004 Create an architecture decision record for the supported Node.js/OpenCode
+- [x] T004 Create an architecture decision record for the supported Node.js/OpenCode
   version matrix and validate the selected `@opencode/client` API against that runtime.
-- [ ] T005 Define the final package scripts and build outputs for `dev`, `build`, `start`,
+- [x] T005 Define the final package scripts and build outputs for `dev`, `build`, `start`,
   `test`, `typecheck`, and `test:e2e`; keep the plugin bundle build only while reference
   code remains.
 
 **Checkpoint**: standalone architecture boundaries and current behaviour baseline are
-documented before the plugin build is displaced.
+documented before the plugin build is displaced. **Complete (2026-11-26)**: T001-T005
+are checked off; OpenCode client 2.4.2 contract smoke tests passed. Managed-service
+process ownership remains a dedicated Phase 3 integration gate and is not considered
+verified by this checkpoint.
 
 ## Phase 1: Foundational Domain, Ports, and SQLite
 
