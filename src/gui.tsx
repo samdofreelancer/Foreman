@@ -1,9 +1,8 @@
+import { Plugin } from "@opencode/plugin/gui"
 import { definition } from "./gui/definition"
+import { setup } from "./gui/window"
 
-export const Plugin = {
-  define(options: unknown) {
-    return options
-  },
-}
-
-export default Plugin.define({ ...definition })
+export default Plugin.define({
+  ...definition,
+  setup,
+})
