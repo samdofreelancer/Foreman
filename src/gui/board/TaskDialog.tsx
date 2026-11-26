@@ -3,6 +3,7 @@ import type { DialogHandle, SetupContext } from "@opencode/plugin/gui"
 import type { definition } from "../definition"
 import {
   createTask,
+  deleteTask,
   updateTask,
   validateTaskInput,
   type Task,
@@ -95,6 +96,21 @@ export function TaskDialog(props: {
     props.dialog.close()
   }
 
+  const remove = async () => {
+    if (!props.task) return
+    const confirmed = await props.ctx.dialogs.confirm({
+      title: "Delete this task?",
+      confirm: "Delete",
+      danger: true,
+    })
+    if (!confirmed) return
+    props.ctx.stores.tasks.update((draft) => {
+      const next = deleteTask(draft, props.task!.id)
+      draft.splice(0, draft.length, ...next)
+    })
+    props.dialog.close()
+  }
+
   return (
     <form
       class="foreman-dialog"
@@ -175,6 +191,9 @@ export function TaskDialog(props: {
         </label>
       </Show>
       <div class="foreman-dialog-actions">
+        <Show when={props.task}>
+          <button type="button" onClick={() => void remove()}>Delete</button>
+        </Show>
         <button type="button" onClick={() => props.dialog.close()}>Cancel</button>
         <button class="foreman-primary" type="submit" disabled={!validation().valid}>Save</button>
       </div>
