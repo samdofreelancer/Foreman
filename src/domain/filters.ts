@@ -18,3 +18,10 @@ export function applyTaskFilters(
 ): Task[] {
   return searchTasks(applyFilter(tasks, projectDirectory), query)
 }
+
+export function isProjectMissing(
+  projectDirectory: string,
+  knownProjectDirectories: readonly string[],
+): boolean {
+  return !knownProjectDirectories.includes(projectDirectory)
+}

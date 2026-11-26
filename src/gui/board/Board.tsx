@@ -14,6 +14,29 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
   const [search, setSearch] = createSignal("")
   const [searchInput, setSearchInput] = createSignal("")
   const [warningVisible, setWarningVisible] = createSignal(false)
+  const [knownProjectDirectories, setKnownProjectDirectories] = createSignal<string[]>([])
+  const [knownProjectsLoaded, setKnownProjectsLoaded] = createSignal(false)
+
+  createEffect(() => {
+    const sidecar = props.ctx.servers.list()
+      .map((id) => props.ctx.servers.get(id))
+      .find((server) => server?.builtin)
+    if (!sidecar) return
+    void sidecar.client.project.list().then((list) => {
+      setKnownProjectDirectories(list.map((project) => project.canonical))
+      setKnownProjectsLoaded(true)
+    })
+  })
+
+  createEffect(() => {
+    const value = props.ctx.stores.tasks.value
+    const corrupt = !Array.isArray(value) || value.some((task) =>
+      typeof task.id !== "string"
+      || typeof task.title !== "string"
+      || typeof task.projectDirectory !== "string"
+    )
+    setWarningVisible(corrupt)
+  })
 
   createEffect(() => {
     const value = searchInput()
@@ -78,6 +101,8 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
               ctx={props.ctx}
               column={column}
               tasks={groups()[column]}
+              knownProjectDirectories={knownProjectDirectories()}
+              knownProjectsLoaded={knownProjectsLoaded()}
             />
           )}
         </For>

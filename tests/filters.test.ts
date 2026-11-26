@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyTaskFilters } from "../src/domain/filters"
+import { applyTaskFilters, isProjectMissing } from "../src/domain/filters"
 
 const tasks = [
   { id: "1", title: "Fix login", projectDirectory: "/a", column: "todo" as const, createdAt: 1, updatedAt: 1 },
@@ -22,5 +22,10 @@ describe("filter domain", () => {
 
   it("returns no cards for no match", () => {
     expect(applyTaskFilters(tasks, "/c", "")).toEqual([])
+  })
+
+  it("detects a task whose project directory is missing", () => {
+    expect(isProjectMissing("/projects/a", ["/projects/a", "/projects/b"])).toBe(false)
+    expect(isProjectMissing("/projects/c", ["/projects/a", "/projects/b"])).toBe(true)
   })
 })

@@ -58,4 +58,13 @@ describe("task domain", () => {
     ]
     expect(deleteTask(tasks, "task-1").map((task) => task.id)).toEqual(["task-2"])
   })
+
+  it("rejects manual moves into Doing without a session", () => {
+    const task = createTask(
+      { title: "Manual", projectDirectory: "/projects/foreman" },
+      100,
+      "task-1",
+    )
+    expect(() => updateTask(task, { column: "doing" }, 200)).toThrow()
+  })
 })

@@ -185,7 +185,6 @@ export function TaskDialog(props: {
           >
             <option value="todo">Todo</option>
             <option value="ready">Ready</option>
-            <option value="doing">Doing</option>
             <option value="done">Done</option>
           </select>
         </label>

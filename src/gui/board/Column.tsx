@@ -15,6 +15,8 @@ export function Column(props: {
   ctx: SetupContext<typeof definition>
   column: TaskColumn
   tasks: Task[]
+  knownProjectDirectories: readonly string[]
+  knownProjectsLoaded: boolean
 }) {
   const [limit, setLimit] = createSignal(50)
   const visibleTasks = createMemo(() => props.tasks.slice(0, limit()))
@@ -31,7 +33,14 @@ export function Column(props: {
           fallback={<div class="foreman-empty">No tasks</div>}
         >
           <For each={visibleTasks()}>
-            {(task) => <TaskCard ctx={props.ctx} task={task} />}
+            {(task) => (
+              <TaskCard
+                ctx={props.ctx}
+                task={task}
+                knownProjectDirectories={props.knownProjectDirectories}
+                knownProjectsLoaded={props.knownProjectsLoaded}
+              />
+            )}
           </For>
         </Show>
         <Show when={props.tasks.length > limit()}>

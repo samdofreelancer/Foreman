@@ -83,6 +83,9 @@ export function createTask(input: TaskInput, now: number, id: string): Task {
 }
 
 export function updateTask(existing: Task, patch: TaskPatch, now: number): Task {
+  if (patch.column === "doing" && !existing.sessionID) {
+    throw new Error("Doing is managed by runs")
+  }
   const next = {
     ...existing,
     ...patch,
