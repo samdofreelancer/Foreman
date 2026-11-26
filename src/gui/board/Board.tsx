@@ -1,4 +1,4 @@
-import { For, createMemo, createSignal } from "solid-js"
+import { For, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import type { SetupContext } from "@opencode/plugin/gui"
 import type { definition } from "../definition"
 import type { Task, TaskColumn } from "../../domain/task"
@@ -12,6 +12,13 @@ const columns: readonly TaskColumn[] = ["todo", "ready", "doing", "done"]
 export function Board(props: { ctx: SetupContext<typeof definition> }) {
   const [projectDirectory, setProjectDirectory] = createSignal<string>()
   const [search, setSearch] = createSignal("")
+  const [searchInput, setSearchInput] = createSignal("")
+
+  createEffect(() => {
+    const value = searchInput()
+    const timer = setTimeout(() => setSearch(value), 150)
+    onCleanup(() => clearTimeout(timer))
+  })
 
   const tasks = createMemo<Task[]>(() => props.ctx.stores.tasks.value ?? [])
   const filtered = createMemo(() =>
@@ -51,8 +58,8 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
         <label>
           <span>Search</span>
           <input
-            value={search()}
-            onInput={(event) => setSearch(event.currentTarget.value)}
+            value={searchInput()}
+            onInput={(event) => setSearchInput(event.currentTarget.value)}
             placeholder="Search tasks"
           />
         </label>
