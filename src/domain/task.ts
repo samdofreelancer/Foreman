@@ -120,3 +120,51 @@ export function safeTaskArray(value: unknown): Task[] {
     && typeof (item as Record<string, unknown>).updatedAt === "number"
   )
 }
+
+export function markTaskStarted(task: Task, sessionID: string, now: number): Task {
+  if (task.sessionID) return task
+  return {
+    ...task,
+    sessionID,
+    startedAt: now,
+    column: "doing",
+    updatedAt: now,
+    lastError: undefined,
+  }
+}
+
+export function markTaskStartFailed(
+  task: Task,
+  previousColumn: TaskColumn,
+  error: string,
+  now: number,
+): Task {
+  return {
+    ...task,
+    column: previousColumn,
+    lastError: error,
+    updatedAt: now,
+  }
+}
+
+export function setTaskFinished(task: Task, now: number): Task {
+  return {
+    ...task,
+    column: "done",
+    finishedAt: task.finishedAt ?? now,
+    updatedAt: now,
+  }
+}
+
+export function clearTaskFinished(
+  task: Task,
+  column: "todo" | "ready",
+  now: number,
+): Task {
+  return {
+    ...task,
+    column,
+    finishedAt: undefined,
+    updatedAt: now,
+  }
+}

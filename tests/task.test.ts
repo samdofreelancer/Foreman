@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { createTask, deleteTask, safeTaskArray, updateTask, validateTaskInput } from "../src/domain/task"
+import {
+  clearTaskFinished,
+  createTask,
+  deleteTask,
+  markTaskStarted,
+  markTaskStartFailed,
+  safeTaskArray,
+  setTaskFinished,
+  updateTask,
+  validateTaskInput,
+} from "../src/domain/task"
 
 describe("task domain", () => {
   it("creates a Todo task from title and project", () => {
@@ -71,5 +81,41 @@ describe("task domain", () => {
   it("guards an unexpected store value and resets it to an empty array", () => {
     expect(safeTaskArray(undefined)).toEqual([])
     expect(safeTaskArray({ not: "an array" })).toEqual([])
+  })
+
+  it("marks a task started exactly once", () => {
+    const task = createTask(
+      { title: "Run", projectDirectory: "/projects/foreman" },
+      100,
+      "task-1",
+    )
+    const started = markTaskStarted(task, "ses-1", 200)
+    expect(started.sessionID).toBe("ses-1")
+    expect(started.startedAt).toBe(200)
+    expect(started.column).toBe("doing")
+    expect(markTaskStarted(started, "ses-2", 300).sessionID).toBe("ses-1")
+  })
+
+  it("restores the previous column and records a readable start error", () => {
+    const task = createTask(
+      { title: "Run", projectDirectory: "/projects/foreman", column: "ready" },
+      100,
+      "task-1",
+    )
+    const failed = markTaskStartFailed(task, "todo", "Sidecar unavailable", 200)
+    expect(failed.column).toBe("todo")
+    expect(failed.lastError).toBe("Sidecar unavailable")
+  })
+
+  it("sets and clears finishedAt only for Done transitions", () => {
+    const task = createTask(
+      { title: "Run", projectDirectory: "/projects/foreman" },
+      100,
+      "task-1",
+    )
+    const done = setTaskFinished(task, 200)
+    expect(done.finishedAt).toBe(200)
+    expect(done.column).toBe("done")
+    expect(clearTaskFinished(done, "todo", 300).finishedAt).toBeUndefined()
   })
 })
