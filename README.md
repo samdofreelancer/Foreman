@@ -4,7 +4,7 @@ A task board for OpenCode Desktop. A card is a **task**, not a chat. Dragging a 
 to **Ready** starts an OpenCode session for it; the board follows that run and tells
 you when it is working, waiting on you, or broken — until you move it to **Done**.
 
-> **Status: P1 implementation in progress.** P2 and P3 are specification only.
+> **Status: P1 implementation complete.** P2 and P3 are specification only.
 > Phases: `specs/001-board/` (P1), `specs/002-run/` (P2), `specs/003-intervene/` (P3).
 
 ## The loop
