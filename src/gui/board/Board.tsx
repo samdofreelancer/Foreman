@@ -133,7 +133,7 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
           idle: snapshot.idle,
           viewed: snapshot.viewed,
         })
-        if (state === "working") {
+        if (!snapshot.connected || state === "working" || state === "missing") {
           const confirmed = await props.ctx.dialogs.confirm({
             title: "The run is still working",
             confirm: "Move to Done",

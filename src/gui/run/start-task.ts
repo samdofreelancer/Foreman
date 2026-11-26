@@ -89,9 +89,15 @@ export function startTask(
         ctx.stores.tasks.update((draft) => {
           const index = draft.findIndex((item) => item.id === task.id)
           if (index >= 0) {
-            draft[index] = markTaskStartFailed(draft[index], previousColumn, message, Date.now())
-          } else {
-            draft.push(markTaskStartFailed(task, previousColumn, message, Date.now()))
+            if (!draft[index].sessionID && draft[index].column === "ready") {
+              draft[index] = markTaskStartFailed(draft[index], previousColumn, message, Date.now())
+            } else {
+              draft[index] = {
+                ...draft[index],
+                lastError: message,
+                updatedAt: Date.now(),
+              }
+            }
           }
         })
         ctx.toast?.show({ title: "Failed to start task", description: message, variant: "error" })
@@ -103,9 +109,16 @@ export function startTask(
       ctx.stores.tasks.update((draft) => {
         const index = draft.findIndex((item) => item.id === task.id)
         if (index >= 0) {
-          draft[index] = markTaskStarted(draft[index], created.id, now)
-        } else {
-          draft.push(markTaskStarted(task, created.id, now))
+          if (!draft[index].sessionID) {
+            draft[index] = {
+              ...draft[index],
+              sessionID: created.id,
+              startedAt: now,
+              column: draft[index].column === "ready" ? "doing" : draft[index].column,
+              updatedAt: now,
+              lastError: undefined,
+            }
+          }
         }
       })
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { readFileSync } from "node:fs"
 import { resolveDrop } from "../src/domain/drag"
 
 describe("resolveDrop", () => {
@@ -27,5 +28,14 @@ describe("resolveDrop", () => {
       taskID: "task-1",
       to: "done",
     })
+  })
+
+  it("requires confirmation for unknown sidecar state before Done", () => {
+    const source = readFileSync(
+      new URL("../src/gui/board/Board.tsx", import.meta.url),
+      "utf8",
+    )
+    expect(source).toContain("snapshot.connected")
+    expect(source).toContain("dialogs.confirm")
   })
 })

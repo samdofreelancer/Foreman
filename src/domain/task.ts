@@ -91,6 +91,7 @@ export function updateTask(existing: Task, patch: TaskPatch, now: number): Task 
     ...patch,
     id: existing.id,
     createdAt: existing.createdAt,
+    sessionID: existing.sessionID,
     updatedAt: now,
   }
   if (next.column === "done") {

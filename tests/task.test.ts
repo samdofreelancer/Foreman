@@ -118,4 +118,15 @@ describe("task domain", () => {
     expect(done.column).toBe("done")
     expect(clearTaskFinished(done, "todo", 300).finishedAt).toBeUndefined()
   })
+
+  it("does not replace an existing sessionID through updateTask", () => {
+    const task = createTask(
+      { title: "Run", projectDirectory: "/projects/foreman" },
+      100,
+      "task-1",
+    )
+    const started = markTaskStarted(task, "ses-1", 200)
+    const updated = updateTask(started, { sessionID: "ses-replacement" }, 300)
+    expect(updated.sessionID).toBe("ses-1")
+  })
 })

@@ -20,4 +20,13 @@ describe("task dialog host integration", () => {
     expect(source).toContain('column() === "ready"')
     expect(source).toContain("startTask")
   })
+
+  it("gates Done in the edit dialog with an explicit confirmation", () => {
+    const source = readFileSync(
+      new URL("../src/gui/board/TaskDialog.tsx", import.meta.url),
+      "utf8",
+    )
+    expect(source).toContain("dialogs.confirm")
+    expect(source).toContain('column() === "done"')
+  })
 })
