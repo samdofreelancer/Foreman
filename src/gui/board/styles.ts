@@ -20,7 +20,7 @@ export const boardStyles = `
 .foreman-card-meta { display:flex; flex-direction:column; gap:4px; color:var(--text-muted,#667085); font-size:11px; }
 .foreman-column-name { text-transform:capitalize; }
 .foreman-empty { min-height:110px; display:grid; place-items:center; border:1px dashed var(--border,#dfe3ea); border-radius:8px; color:var(--text-muted,#667085); font-size:12px; background:var(--surface,#fff); }
-.foreman-dialog { display:flex; flex-direction:column; gap:12px; width:min(520px,calc(100vw - 40px)); box-sizing:border-box; }
+.foreman-dialog { display:flex; flex-direction:column; gap:12px; width:min(560px,calc(100vw - 32px)); max-height:min(680px,calc(100vh - 32px)); box-sizing:border-box; overflow-y:auto; border:1px solid var(--border,#dfe3ea); border-radius:12px; background:var(--surface,Canvas); color:inherit; padding:20px; box-shadow:0 18px 48px rgba(16,24,40,.18); }
 .foreman-dialog h2 { margin:0 0 2px; font-size:18px; }
 .foreman-dialog label { display:flex; flex-direction:column; gap:6px; }
 .foreman-dialog label > span { font-size:12px; font-weight:600; }
@@ -29,6 +29,7 @@ export const boardStyles = `
 .foreman-dialog textarea { resize:vertical; }
 .foreman-dialog small { color:var(--danger,#d92d20); font-size:12px; }
 .foreman-model-fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.foreman-project-mode { align-self:flex-start; border:0; background:transparent; color:var(--accent,#4f46e5); padding:0; font-size:12px; cursor:pointer; }
 .foreman-dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:4px; }
 .foreman-dialog-actions button { height:36px; border:1px solid var(--border,#dfe3ea); border-radius:8px; background:var(--surface,#fff); color:inherit; padding:0 12px; cursor:pointer; }
 .foreman-dialog-actions .foreman-primary { border-color:var(--accent,#4f46e5); background:var(--accent,#4f46e5); color:#fff; }

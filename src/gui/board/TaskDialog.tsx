@@ -38,6 +38,7 @@ export function TaskDialog(props: {
   const [modelID, setModelID] = createSignal(props.task?.model?.id ?? "")
   const [column, setColumn] = createSignal<TaskColumn>(props.task?.column ?? "todo")
   const [projects, setProjects] = createSignal<ProjectOption[]>([])
+  const [manualProject, setManualProject] = createSignal(false)
 
   createEffect(() => {
     const sidecar = props.ctx.servers.list()
@@ -137,27 +138,40 @@ export function TaskDialog(props: {
       </label>
       <label>
         <span>Project</span>
-        <select
-          value={projectDirectory()}
-          onInput={(event) => {
-            const directory = event.currentTarget.value
-            setProjectDirectory(directory)
-            const selected = projects().find((project) => project.directory === directory)
-            setProjectName(selected?.name ?? "")
-          }}
+        <Show
+          when={manualProject()}
+          fallback={
+            <select
+              value={projectDirectory()}
+              onInput={(event) => {
+                const directory = event.currentTarget.value
+                setProjectDirectory(directory)
+                const selected = projects().find((project) => project.directory === directory)
+                setProjectName(selected?.name ?? "")
+              }}
+            >
+              <option value="">Choose project</option>
+              <For each={projects()}>
+                {(project) => (
+                  <option value={project.directory}>{project.name} - {project.directory}</option>
+                )}
+              </For>
+            </select>
+          }
         >
-          <option value="">Choose project</option>
-          <For each={projects()}>
-            {(project) => (
-              <option value={project.directory}>{project.name} - {project.directory}</option>
-            )}
-          </For>
-        </select>
-        <input
-          value={projectDirectory()}
-          placeholder="Or enter an absolute project directory"
-          onInput={(event) => setProjectDirectory(event.currentTarget.value)}
-        />
+          <input
+            value={projectDirectory()}
+            placeholder="C:\\Users\\name\\project"
+            onInput={(event) => setProjectDirectory(event.currentTarget.value)}
+          />
+        </Show>
+        <button
+          class="foreman-project-mode"
+          type="button"
+          onClick={() => setManualProject((value) => !value)}
+        >
+          {manualProject() ? "Choose from known projects" : "Enter a manual path"}
+        </button>
         <Show when={validation().projectError}>
           {(message) => <small>{message()}</small>}
         </Show>
