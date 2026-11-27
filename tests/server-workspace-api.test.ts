@@ -154,6 +154,39 @@ describe("standalone workspace API", () => {
     expect(gateway.readSessionMessages).toHaveBeenCalledWith("ses-message-history")
   })
 
+  it("streams only the linked OpenCode session progress to the task event stream", async () => {
+    let publish: ((event: { type: string; properties?: Record<string, unknown> }) => void) | undefined
+    const runtime = {
+      status: { status: "connected" },
+      subscribeEvents: (listener: typeof publish extends ((event: infer E) => void) | undefined ? (event: E) => void : never) => {
+        publish = listener
+        return () => { publish = undefined }
+      },
+      close: vi.fn(async () => undefined),
+    }
+    const { request, tasks } = await workspace({ runtime })
+    const created = await request("/api/tasks", "POST", { title: "Stream progress", projectDirectory: "/work/stream" })
+    const { task } = await created.json() as { task: { id: string } }
+    tasks.update({ ...tasks.getById(task.id)!, column: "ready", updatedAt: Date.now() })
+    expect(tasks.claimStart(task.id, "claim-stream", Date.now())).toBe(true)
+    expect(tasks.claimSession(task.id, "ses-stream", Date.now() + 1, "claim-stream")).toBe(true)
+
+    const controller = new AbortController()
+    const response = await fetch(`${new URL(`/api/tasks/${task.id}/events`, (await request("/api/health")).url)}`, { signal: controller.signal })
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    const reader = response.body!.getReader()
+    const ready = await reader.read()
+    expect(new TextDecoder().decode(ready.value)).toContain("event: ready")
+    publish?.({ type: "session.text.delta", properties: { sessionID: "ses-stream", assistantMessageID: "msg-1", delta: "Hello" } })
+    const progress = await reader.read()
+    const payload = new TextDecoder().decode(progress.value)
+    expect(payload).toContain("event: progress")
+    expect(payload).toContain("Hello")
+    publish?.({ type: "session.text.delta", properties: { sessionID: "ses-other", assistantMessageID: "msg-2", delta: "Do not leak" } })
+    await reader.cancel()
+    controller.abort()
+  })
+
   it("discovers projects from a connected runtime and imports only a currently advertised directory", async () => {
     const gateway = { listProjects: vi.fn(async () => [
       { directory: "/work/alpha", name: "Alpha" }, { directory: "/work/beta", name: "Beta" },

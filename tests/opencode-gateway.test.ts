@@ -12,7 +12,7 @@ function fakeClient() {
       get: vi.fn().mockResolvedValue({ id: "ses-1", title: "Build", location: { directory: "C:\\work\\demo" }, time: { idle: 1 } }),
       context: vi.fn().mockResolvedValue([
         { id: "msg-user", type: "user", text: "Run the migrations", time: { created: 10 } },
-        { id: "msg-assistant", type: "assistant", content: [{ type: "text", text: "Migrations passed." }, { type: "tool", name: "test", id: "tool-1", state: { status: "completed", input: {}, content: [] }, time: { created: 11 } }], time: { created: 11 } },
+        { id: "msg-assistant", type: "assistant", model: { providerID: "anthropic", id: "claude-sonnet-4-5" }, content: [{ type: "text", text: "Migrations passed." }, { type: "tool", name: "test", id: "tool-1", state: { status: "completed", input: {}, content: [] }, time: { created: 11 } }], time: { created: 11 } },
       ]),
       form: {
         list: vi.fn().mockResolvedValue([{ id: "form-1", sessionID: "ses-1", title: "Choose", fields: [{ key: "approval", title: "Approve", type: "string" }] }]),
@@ -28,7 +28,7 @@ function fakeClient() {
     form: { list: vi.fn().mockResolvedValue({ data: [{ id: "form-1", sessionID: "ses-1" }] }) },
     event: { subscribe: vi.fn(() => (async function* () {
       yield { type: "session.idle", data: { sessionID: "ses-1", text: "private transcript" } }
-      yield { type: "session.text.delta", data: { sessionID: "ses-1", delta: "private transcript" } }
+      yield { type: "session.text.delta", data: { sessionID: "ses-1", assistantMessageID: "msg-live", ordinal: 0, delta: "Visible streamed answer" } }
     })()) },
   }
 }
@@ -62,7 +62,7 @@ describe("OpenCodeGatewayAdapter", () => {
     const gateway = new OpenCodeGatewayAdapter(client as never)
     expect(await gateway.readSessionMessages("ses-1")).toEqual([
       { id: "msg-user", role: "user", text: "Run the migrations", createdAt: 10 },
-      { id: "msg-assistant", role: "assistant", text: "Migrations passed.", createdAt: 11 },
+      { id: "msg-assistant", role: "assistant", text: "Migrations passed.", createdAt: 11, model: { providerID: "anthropic", id: "claude-sonnet-4-5" } },
     ])
     expect(client.session.context).toHaveBeenCalledWith({ sessionID: "ses-1" })
   })
@@ -91,6 +91,7 @@ describe("OpenCodeGatewayAdapter", () => {
     const events = gateway.subscribeEvents()
     const iterator = events[Symbol.asyncIterator]()
     expect(await iterator.next()).toMatchObject({ value: { type: "session.idle", properties: { sessionID: "ses-1" } }, done: false })
+    expect(await iterator.next()).toMatchObject({ value: { type: "session.text.delta", properties: { sessionID: "ses-1", assistantMessageID: "msg-live", delta: "Visible streamed answer" } }, done: false })
     expect(await iterator.next()).toMatchObject({ done: true })
   })
 })

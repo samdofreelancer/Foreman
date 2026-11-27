@@ -11,7 +11,7 @@ type RuntimeView = { status: "connected" | "stale" | "connecting" | "disconnecte
 type SavedRuntimeSettings = { mode: "managed" | "external"; endpoint?: string; executable?: string; username?: string; credentialRequired: boolean; autoConnect: boolean; updatedAt: number }
 type HealthView = { status: "ok" | "degraded"; server?: { status: string; uptimeSeconds: number; nodeVersion: string }; database?: { status: string; schemaVersion: number; message?: string }; runtime?: RuntimeView }
 type BackupPreview = { token: string; manifest: { createdAt: string; schemaVersion: number; databaseBytes: number }; counts: { tasks: number; projects: number; activities: number } }
-type TaskMessage = { id: string; role: "user" | "assistant"; text: string; createdAt: number }
+type TaskMessage = { id: string; role: "user" | "assistant"; text: string; createdAt: number; model?: { providerID: string; id: string } }
 type Props = { route: AppRoute; csrfToken: string; onNavigate(path: AppRoute): void; onRuntimeChange(status: RuntimeView): void; onInboxCountChange(count: number): void }
 const columns: Array<{ id: TaskColumn; label: string; hint: string }> = [
   { id: "todo", label: "Todo", hint: "Ideas and upcoming work" },
@@ -203,6 +203,9 @@ export function Workspace(props: Props) {
   const [restorePreview, setRestorePreview] = createSignal<BackupPreview>()
   const [followUpText, setFollowUpText] = createSignal("")
   const [taskMessages, setTaskMessages] = createSignal<TaskMessage[]>([])
+  const [liveProgress, setLiveProgress] = createSignal("")
+  const [liveProgressActive, setLiveProgressActive] = createSignal(false)
+  const [liveMessage, setLiveMessage] = createSignal<{ id: string; text: string; createdAt: number }>()
 
   const handleEscape = (event: KeyboardEvent) => {
     if (event.key !== "Escape") return
@@ -212,6 +215,20 @@ export function Workspace(props: Props) {
   }
   window.addEventListener("keydown", handleEscape)
   onCleanup(() => window.removeEventListener("keydown", handleEscape))
+
+  createEffect(() => {
+    const modalOpen = !!selected() || showCreate() || editing()
+    if (!modalOpen) return
+    const previousOverflow = document.body.style.overflow
+    const previousPaddingRight = document.body.style.paddingRight
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    document.body.style.overflow = "hidden"
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`
+    onCleanup(() => {
+      document.body.style.overflow = previousOverflow
+      document.body.style.paddingRight = previousPaddingRight
+    })
+  })
 
   const refresh = async () => {
     setLoading(true)
@@ -257,13 +274,44 @@ export function Workspace(props: Props) {
   }
   createEffect(() => {
     const task = selected()
-    if (!task?.sessionID) { setTaskMessages([]); return }
+    if (!task?.sessionID) { setTaskMessages([]); setLiveProgress(""); setLiveProgressActive(false); setLiveMessage(undefined); return }
     let active = true
+    const stream = new EventSource(`/api/tasks/${encodeURIComponent(task.id)}/events`)
+    stream.addEventListener("progress", (raw) => {
+      if (!active) return
+      try {
+        const event = JSON.parse((raw as MessageEvent<string>).data) as { type: string; properties?: Record<string, unknown> }
+        const properties = event.properties ?? {}
+        const messageId = typeof properties.assistantMessageID === "string" ? properties.assistantMessageID : undefined
+        if (event.type === "session.execution.started") { setLiveProgress("OpenCode đã nhận yêu cầu · đang khởi động…"); setLiveProgressActive(true) }
+        else if (event.type === "session.step.started") { setLiveProgress("OpenCode đang phân tích và xử lý yêu cầu…"); setLiveProgressActive(true) }
+        else if (event.type === "session.text.delta" && messageId && typeof properties.delta === "string") {
+          setLiveProgress("Đang tạo câu trả lời…")
+          setLiveProgressActive(true)
+          setLiveMessage((current) => current?.id === messageId
+            ? { ...current, text: current.text + properties.delta as string }
+            : { id: messageId, text: properties.delta as string, createdAt: Date.now() })
+        } else if (event.type === "session.tool.input.started") {
+          setLiveProgress(`Đang chạy công cụ: ${typeof properties.name === "string" ? properties.name : "tool"}…`)
+          setLiveProgressActive(true)
+        } else if (event.type === "session.tool.success") { setLiveProgress("Công cụ đã hoàn thành · OpenCode đang tiếp tục…"); setLiveProgressActive(true) }
+        else if (event.type === "session.tool.failed") { setLiveProgress("Một công cụ gặp lỗi · OpenCode đang xử lý…"); setLiveProgressActive(true) }
+        else if (event.type === "session.retry.scheduled") { setLiveProgress("OpenCode đang thử lại sau sự cố tạm thời…"); setLiveProgressActive(true) }
+        else if (event.type === "session.step.ended") { setLiveProgress("Đang hoàn thiện kết quả…"); setLiveProgressActive(true) }
+        else if (event.type === "session.execution.succeeded" || event.type === "session.idle") {
+          setLiveProgress("Đã hoàn tất · đang đồng bộ lịch sử…")
+          void loadConversation().finally(() => { setLiveProgress("Đã nhận phản hồi từ OpenCode."); setLiveProgressActive(false) })
+        } else if (event.type === "session.execution.failed") { setLiveProgress("OpenCode kết thúc với lỗi."); setLiveProgressActive(false) }
+        else if (event.type === "session.execution.interrupted") { setLiveProgress("OpenCode đã dừng thực thi."); setLiveProgressActive(false) }
+      } catch { /* Ignore malformed events; the persisted conversation remains authoritative. */ }
+    })
+    stream.onerror = () => { if (active && stream.readyState === EventSource.CONNECTING) { setLiveProgress("Mất kết nối cập nhật trực tiếp · đang kết nối lại…"); setLiveProgressActive(true) } }
     const loadConversation = async () => {
       try {
         const detail = await request<{ task: Task; messages: TaskMessage[]; activity: ActivityEvent[] }>(`/api/tasks/${task.id}`, props.csrfToken)
         if (!active) return
         setTaskMessages(detail.messages)
+        if (liveMessage() && detail.messages.some((message) => message.id === liveMessage()!.id)) setLiveMessage(undefined)
         if (task.updatedAt !== detail.task.updatedAt || task.column !== detail.task.column || task.lastError !== detail.task.lastError) {
           setSelected(detail.task)
         }
@@ -274,7 +322,20 @@ export function Workspace(props: Props) {
     }
     void loadConversation()
     const interval = window.setInterval(() => void loadConversation(), 3_000)
-    onCleanup(() => { active = false; window.clearInterval(interval) })
+    const runtimeInterval = window.setInterval(() => {
+      void request<{ runtime: RuntimeView }>("/api/runtime", props.csrfToken).then(({ runtime }) => {
+        if (active && runtime.status !== "connected" && liveProgressActive()) {
+          setLiveProgress("OpenCode đã mất kết nối · kiểm tra lại runtime trong Settings.")
+          setLiveProgressActive(false)
+        }
+      }).catch(() => {
+        if (active && liveProgressActive()) {
+          setLiveProgress("Không thể xác nhận kết nối OpenCode · đang thử kết nối lại…")
+          setLiveProgressActive(false)
+        }
+      })
+    }, 5_000)
+    onCleanup(() => { active = false; stream.close(); window.clearInterval(interval); window.clearInterval(runtimeInterval) })
   })
   createEffect(() => {
     if (props.route !== "/settings") return
@@ -489,11 +550,21 @@ export function Workspace(props: Props) {
   const sendFollowUp = async (event: SubmitEvent) => {
     event.preventDefault()
     const task = selected(); if (!task || !followUpText().trim()) return
+    const text = followUpText().trim()
     setRuntimeBusy(true); setError("")
+    setLiveMessage(undefined)
+    setLiveProgress("Đang gửi yêu cầu tới OpenCode…")
+    setLiveProgressActive(true)
     try {
-      await request(`/api/tasks/${task.id}/follow-up`, props.csrfToken, "POST", { text: followUpText() })
-      setFollowUpText(""); await refresh()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Follow-up could not be sent.") }
+      await request(`/api/tasks/${task.id}/follow-up`, props.csrfToken, "POST", { text })
+      setLiveProgress("Đã gửi yêu cầu · OpenCode đang xử lý…")
+      setFollowUpText("")
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Follow-up could not be sent."
+      setLiveProgress(`Không thể gửi yêu cầu: ${message}`)
+      setLiveProgressActive(false)
+      setError(message)
+    }
     finally { setRuntimeBusy(false) }
   }
 
@@ -566,7 +637,7 @@ export function Workspace(props: Props) {
       </section>
     </Show>
 
-    <Show when={selected() && !editing()}><div class="detail-backdrop" role="presentation" onClick={() => setSelected(undefined)}><aside class="task-detail" role="dialog" aria-modal="true" aria-labelledby="detail-title" onClick={(event) => event.stopPropagation()}><div class="detail-head"><span class="eyebrow">TASK DETAILS</span><button class="icon-button" aria-label="Close task details" onClick={() => setSelected(undefined)}>×</button></div><span class="task-project">{projectLabel(selected()!)}</span><h2 id="detail-title">{selected()!.title}</h2><p class="detail-description">{selected()!.description || "No description provided."}</p><div class="detail-field"><span>Status</span><select aria-label="Task status" disabled={selected()!.column === "doing"} value={selected()!.column} onChange={(event) => void moveTask(selected()!, event.currentTarget.value as TaskColumn)}><option value="todo">Todo</option><option value="ready">Ready</option><option value="doing" disabled>Doing · runtime controlled</option><option value="done">Done</option></select></div><div class="detail-field"><span>Project directory</span><code>{selected()!.projectDirectory}</code></div><div class="detail-field"><span>Agent</span><strong>{selected()!.agent || "build"}</strong></div><div class="detail-field"><span>Model</span><strong>{selected()!.model ? `${selected()!.model!.providerID} / ${selected()!.model!.id}` : "Not specified"}</strong></div><div class="detail-field"><span>OpenCode session</span><strong>{selected()!.sessionID || "Not started"}<Show when={selected()!.sessionID && runtimeStatus().sessionBaseUrl}><a class="session-open-link" href={`${runtimeStatus().sessionBaseUrl}/${encodeURIComponent(selected()!.sessionID!)}`} target="_blank" rel="noreferrer">Open in OpenCode ↗</a></Show></strong></div><div class="detail-field"><span>Execution state</span><strong>{executionLabel(selected()!, runtimeStatus())}</strong></div><Show when={selected()!.startPending}><p class="workspace-alert" role="status">Start outcome is unknown. Inspect OpenCode before retrying; Foreman has blocked duplicate session creation.</p><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void recoverStartClaim()}>I confirmed no session exists · clear start lock</button></Show><Show when={selected()!.lastError}><p class="workspace-alert" role="status">{selected()!.lastError}</p></Show><Show when={selected()!.sessionID && selected()!.initialPromptState === "pending"}><p class="form-note">The initial prompt delivery state is unknown. Inspect this session in OpenCode before taking another action.</p></Show><Show when={selected()!.sessionID}><section class="task-conversation" aria-label="OpenCode conversation"><div class="conversation-heading"><h3>Conversation</h3><span>{taskMessages().length} messages</span></div><Show when={taskMessages().length === 0}><p class="form-note">No conversation messages are available yet.</p></Show><For each={taskMessages()}>{(message) => <article class={`conversation-message conversation-${message.role}`}><header><span class="conversation-avatar">{message.role === "assistant" ? "O" : "Y"}</span><strong>{message.role === "assistant" ? "OpenCode" : "You"}</strong><time>{formatDate(message.createdAt)}</time></header><MessageMarkdown source={message.text}/></article>}</For></section></Show><Show when={!selected()!.sessionID}><div class="detail-actions"><button class="button button-primary" disabled={runtimeStatus().status !== "connected" || selected()!.column !== "ready" || selected()!.startPending || runtimeBusy()} onClick={() => void startSelected()}>{runtimeBusy() ? "Starting…" : selected()!.startPending ? "Start outcome unknown" : "Start task"}</button><Show when={runtimeStatus().status !== "connected"}><button class="button button-quiet" onClick={() => props.onNavigate("/settings")}>Connect OpenCode</button></Show></div></Show><Show when={selected()!.sessionID && selected()!.initialPromptState === "failed"}><button class="button button-primary" disabled={runtimeStatus().status !== "connected" || runtimeBusy()} onClick={() => void resendPrompt()}>Resend initial prompt</button></Show><Show when={selected()!.sessionID}><form class="follow-up-form" onSubmit={sendFollowUp}><label>Follow up in this session<textarea required rows="3" maxlength="20000" value={followUpText()} onInput={(event) => setFollowUpText(event.currentTarget.value)} placeholder="Give OpenCode the next instruction…"/></label><button class="button button-primary" type="submit" disabled={runtimeStatus().status !== "connected" || runtimeBusy() || !followUpText().trim()}>Send follow-up</button></form></Show><div class="detail-field"><span>Created</span><strong>{formatDate(selected()!.createdAt)}</strong></div><div class="detail-actions"><button class="button button-quiet" onClick={openEdit}>Edit task</button><button class="button button-danger" disabled={!!selected()!.sessionID || !!selected()!.startPending} onClick={() => void deleteSelected()}>Delete</button></div><h3 class="detail-activity-title">Task activity</h3><For each={activities().filter((item) => item.taskId === selected()!.id)}>{(item) => <p class="detail-activity">{item.summary} <time>{formatDate(item.occurredAt)}</time></p>}</For></aside></div></Show>
+    <Show when={selected() && !editing()}><div class="detail-backdrop" role="presentation" onClick={() => setSelected(undefined)}><aside class="task-detail" role="dialog" aria-modal="true" aria-labelledby="detail-title" onClick={(event) => event.stopPropagation()}><div class="detail-head"><span class="eyebrow">TASK DETAILS</span><button class="icon-button" aria-label="Close task details" onClick={() => setSelected(undefined)}>×</button></div><span class="task-project">{projectLabel(selected()!)}</span><h2 id="detail-title">{selected()!.title}</h2><p class="detail-description">{selected()!.description || "No description provided."}</p><div class="detail-field"><span>Status</span><select aria-label="Task status" disabled={selected()!.column === "doing"} value={selected()!.column} onChange={(event) => void moveTask(selected()!, event.currentTarget.value as TaskColumn)}><option value="todo">Todo</option><option value="ready">Ready</option><option value="doing" disabled>Doing · runtime controlled</option><option value="done">Done</option></select></div><div class="detail-field"><span>Project directory</span><code>{selected()!.projectDirectory}</code></div><div class="detail-field"><span>Agent</span><strong>{selected()!.agent || "build"}</strong></div><div class="detail-field"><span>Model</span><strong>{selected()!.model ? `${selected()!.model!.providerID} / ${selected()!.model!.id}` : "Not specified"}</strong></div><div class="detail-field"><span>OpenCode session</span><strong>{selected()!.sessionID || "Not started"}<Show when={selected()!.sessionID && runtimeStatus().sessionBaseUrl}><a class="session-open-link" href={`${runtimeStatus().sessionBaseUrl}/${encodeURIComponent(selected()!.sessionID!)}`} target="_blank" rel="noreferrer">Open in OpenCode ↗</a></Show></strong></div><div class="detail-field"><span>Execution state</span><strong>{executionLabel(selected()!, runtimeStatus())}</strong></div><Show when={selected()!.startPending}><p class="workspace-alert" role="status">Start outcome is unknown. Inspect OpenCode before retrying; Foreman has blocked duplicate session creation.</p><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void recoverStartClaim()}>I confirmed no session exists · clear start lock</button></Show><Show when={selected()!.lastError}><p class="workspace-alert" role="status">{selected()!.lastError}</p></Show><Show when={selected()!.sessionID && selected()!.initialPromptState === "pending"}><p class="form-note">The initial prompt delivery state is unknown. Inspect this session in OpenCode before taking another action.</p></Show><Show when={selected()!.sessionID}><section class="task-conversation" aria-label="OpenCode conversation"><div class="conversation-heading"><h3>Conversation</h3><span>OpenCode {runtimeStatus().version ?? "version unavailable"} · {taskMessages().length} messages</span></div><Show when={liveProgress()}><div class={`live-progress ${liveProgressActive() ? "live-progress-active" : "live-progress-idle"}`} role="status" aria-live="polite"><Show when={liveProgressActive()}><span class="live-progress-dot"/></Show><Show when={!liveProgressActive()}><span class="live-progress-check">✓</span></Show><span>{liveProgress()}</span></div></Show><Show when={taskMessages().length === 0 && !liveMessage()}><p class="form-note">No conversation messages are available yet.</p></Show><For each={taskMessages()}>{(message) => <article class={`conversation-message conversation-${message.role}`}><header><span class="conversation-avatar">{message.role === "assistant" ? "O" : "Y"}</span><strong>{message.role === "assistant" ? "OpenCode" : "You"}</strong><Show when={message.role === "assistant"}><small class="conversation-model">{message.model ? `${message.model.providerID} / ${message.model.id}` : "Model metadata unavailable"}</small></Show><time>{formatDate(message.createdAt)}</time></header><MessageMarkdown source={message.text}/></article>}</For><Show when={liveMessage()}><article class="conversation-message conversation-assistant conversation-live"><header><span class="conversation-avatar">O</span><strong>OpenCode</strong><small class="conversation-model">Streaming response</small><span class="live-cursor"/></header><MessageMarkdown source={liveMessage()!.text}/></article></Show></section></Show><Show when={!selected()!.sessionID}><div class="detail-actions"><button class="button button-primary" disabled={runtimeStatus().status !== "connected" || selected()!.column !== "ready" || selected()!.startPending || runtimeBusy()} onClick={() => void startSelected()}>{runtimeBusy() ? "Starting…" : selected()!.startPending ? "Start outcome unknown" : "Start task"}</button><Show when={runtimeStatus().status !== "connected"}><button class="button button-quiet" onClick={() => props.onNavigate("/settings")}>Connect OpenCode</button></Show></div></Show><Show when={selected()!.sessionID && selected()!.initialPromptState === "failed"}><button class="button button-primary" disabled={runtimeStatus().status !== "connected" || runtimeBusy()} onClick={() => void resendPrompt()}>Resend initial prompt</button></Show><Show when={selected()!.sessionID}><form class="follow-up-form" onSubmit={sendFollowUp}><label>Follow up in this session<textarea required rows="3" maxlength="20000" disabled={runtimeBusy()} value={followUpText()} onInput={(event) => setFollowUpText(event.currentTarget.value)} placeholder="Give OpenCode the next instruction…"/></label><button class="button button-primary follow-up-submit" type="submit" disabled={runtimeStatus().status !== "connected" || runtimeBusy() || !followUpText().trim()}><Show when={runtimeBusy()}><span class="button-spinner"/></Show>{runtimeBusy() ? "Đang gửi tới OpenCode…" : "Send follow-up"}</button></form></Show><div class="detail-field"><span>Created</span><strong>{formatDate(selected()!.createdAt)}</strong></div><div class="detail-actions"><button class="button button-quiet" onClick={openEdit}>Edit task</button><button class="button button-danger" disabled={!!selected()!.sessionID || !!selected()!.startPending} onClick={() => void deleteSelected()}>Delete</button></div><h3 class="detail-activity-title">Task activity</h3><For each={activities().filter((item) => item.taskId === selected()!.id)}>{(item) => <p class="detail-activity">{item.summary} <time>{formatDate(item.occurredAt)}</time></p>}</For></aside></div></Show>
 
     <Show when={showCreate() || editing()}><div class="detail-backdrop" role="presentation" onClick={() => { setShowCreate(false); setEditing(false) }}><section class="task-form-dialog" role="dialog" aria-modal="true" aria-labelledby="task-form-title" onClick={(event) => event.stopPropagation()}><div class="detail-head"><div><span class="eyebrow">WORK ITEM</span><h2 id="task-form-title">{editing() ? "Edit task" : "Create task"}</h2></div><button class="icon-button" aria-label="Close task form" onClick={() => { setShowCreate(false); setEditing(false) }}>×</button></div><form onSubmit={saveTask}><label>Task title<input required maxlength="200" autofocus value={formTitle()} onInput={(event) => setFormTitle(event.currentTarget.value)} placeholder="What needs to be done?"/></label><label>Description<textarea rows="4" value={formDescription()} onInput={(event) => setFormDescription(event.currentTarget.value)} placeholder="Describe the intent and expected outcome…"/></label><label>Project folder<input required value={formProject()} onInput={(event) => setFormProject(event.currentTarget.value)} list="project-directories" placeholder="C:\\work\\project"/><datalist id="project-directories"><For each={projects()}>{(project) => <option value={project.directory}>{project.name}</option>}</For></datalist></label><label>Project name<input value={formProjectName()} onInput={(event) => setFormProjectName(event.currentTarget.value)} placeholder="Optional display name"/></label><label>Agent<input value={formAgent()} onInput={(event) => setFormAgent(event.currentTarget.value)} placeholder="build"/></label><div class="form-two-columns"><label>Model provider ID<input value={formProvider()} onInput={(event) => setFormProvider(event.currentTarget.value)} placeholder="Optional provider"/></label><label>Model ID<input value={formModel()} onInput={(event) => setFormModel(event.currentTarget.value)} placeholder="Optional model"/></label></div><p class="form-note">Tasks are saved locally. Moving a task to Ready does not start an OpenCode session.</p><div class="detail-actions"><button class="button button-primary" type="submit" disabled={saving()}>{saving() ? "Saving…" : editing() ? "Save changes" : "Create task"}</button><button class="button button-quiet" type="button" onClick={() => { setShowCreate(false); setEditing(false) }}>Cancel</button></div></form></section></div></Show>
   </>

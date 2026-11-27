@@ -80,7 +80,10 @@ export class OpenCodeGatewayAdapter implements OpenCodeGateway {
       if (message.type === "user") return [{ id: message.id, role: "user", text: message.text, createdAt: message.time.created }]
       if (message.type === "assistant") {
         const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("").trim()
-        return text ? [{ id: message.id, role: "assistant", text, createdAt: message.time.created }] : []
+        return text ? [{
+          id: message.id, role: "assistant", text, createdAt: message.time.created,
+          model: { providerID: message.model.providerID, id: message.model.id },
+        }] : []
       }
       return []
     })
@@ -126,7 +129,7 @@ export class OpenCodeGatewayAdapter implements OpenCodeGateway {
         for await (const event of source) {
           if (!safeEventTypes.has(event.type)) continue
           const payload = "data" in event ? event.data : undefined
-          yield { type: event.type, properties: sanitizeEventPayload(payload) }
+          yield { type: event.type, properties: sanitizeEventPayload(payload, event.type) }
         }
       },
     }
@@ -152,11 +155,40 @@ const safeEventTypes = new Set([
   "server.connected", "project.updated", "session.created", "session.deleted", "session.renamed",
   "session.metadata.updated", "session.execution.started", "session.execution.succeeded",
   "session.execution.failed", "session.execution.interrupted", "session.idle", "session.status",
+  "session.step.started", "session.step.first-token", "session.step.ended", "session.step.failed",
+  "session.text.delta", "session.tool.input.started", "session.tool.success", "session.tool.failed",
+  "session.retry.scheduled",
   "permission.asked", "permission.replied", "form.created", "form.replied", "form.cancelled",
 ])
 const forbiddenEventKeys = /^(text|content|transcript|prompt|token|password|authorization|secret|body|delta|message)$/i
-function sanitizeEventPayload(value: unknown): Record<string, unknown> | undefined {
+function sanitizeEventPayload(value: unknown, type: string): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const data = value as Record<string, unknown>
+  const sessionID = typeof data.sessionID === "string" ? data.sessionID : undefined
+  const assistantMessageID = typeof data.assistantMessageID === "string" ? data.assistantMessageID : undefined
+  if (type === "session.text.delta") {
+    return sessionID && assistantMessageID && typeof data.delta === "string"
+      ? { sessionID, assistantMessageID, ordinal: data.ordinal, delta: data.delta.slice(0, 8_000) }
+      : undefined
+  }
+  if (type === "session.tool.input.started") {
+    return sessionID && typeof data.id === "string" && typeof data.name === "string"
+      ? { sessionID, assistantMessageID, id: data.id, name: data.name.slice(0, 100) }
+      : undefined
+  }
+  if (["session.tool.success", "session.tool.failed"].includes(type)) {
+    return sessionID && typeof data.id === "string" ? { sessionID, assistantMessageID, id: data.id } : undefined
+  }
+  if (type.startsWith("session.step.")) {
+    return sessionID && assistantMessageID
+      ? { sessionID, assistantMessageID, ...(typeof data.finish === "string" ? { finish: data.finish } : {}) }
+      : undefined
+  }
+  if (type === "session.retry.scheduled") {
+    return sessionID && assistantMessageID && typeof data.at === "number"
+      ? { sessionID, assistantMessageID, attempt: data.attempt, at: data.at }
+      : undefined
+  }
   return sanitizeObject(value, 0) as Record<string, unknown>
 }
 

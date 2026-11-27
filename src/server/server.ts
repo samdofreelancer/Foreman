@@ -304,6 +304,27 @@ function registerWorkspaceApi(
       : []
     return { task, activity: activities.listForTask(task.id), messages }
   })
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/events", async (request, reply) => {
+    const task = tasks.getById(request.params.id)
+    if (!task) return fail(reply, 404, "TASK_NOT_FOUND", "Task not found.")
+    if (!task.sessionID || !runtime?.subscribeEvents) return fail(reply, 409, "TASK_SESSION_UNAVAILABLE", "This task has no live OpenCode session.")
+    reply.hijack()
+    const response = reply.raw
+    response.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    })
+    response.write(`event: ready\ndata: ${JSON.stringify({ taskId: task.id })}\n\n`)
+    const unsubscribe = runtime.subscribeEvents((event) => {
+      const properties = event.properties ?? {}
+      if (properties.sessionID !== task.sessionID) return
+      response.write(`event: progress\ndata: ${JSON.stringify({ type: event.type, properties })}\n\n`)
+    })
+    const heartbeat = setInterval(() => response.write(": keep-alive\n\n"), 15_000)
+    request.raw.on("close", () => { clearInterval(heartbeat); unsubscribe() })
+  })
   app.post("/api/tasks", async (request, reply) => {
     if (!record(request.body)) return fail(reply, 400, "INVALID_TASK", "A task object is required.")
     const body = request.body as Record<string, unknown>

@@ -142,6 +142,8 @@ test("filters tasks across projects and supports keyboard task opening", async (
 test("explicitly starts a Ready task and sends follow-up to its linked session", async ({ page }) => {
   let startedTaskId = ""
   let followUpPayload: { text?: string } | undefined
+  let releaseFollowUp!: () => void
+  let failFollowUp = false
   await page.route("**/api/runtime", (route) => route.fulfill({
     status: 200, contentType: "application/json", body: JSON.stringify({ runtime: { status: "connected", mode: "managed", version: "2.4.2", sessionBaseUrl: "http://127.0.0.1:4096/server/aHR0cDovLzEyNy4wLjAuMTo0MDk2/session" } }),
   }))
@@ -162,19 +164,23 @@ test("explicitly starts a Ready task and sends follow-up to its linked session",
       payload.task = { ...payload.task, column: "doing", sessionID: "ses-e2e", initialPromptState: "sent", startedAt: Date.now() }
       payload.messages = [
         { id: "msg-user-e2e", role: "user", text: "Run the task", createdAt: Date.now() - 1000 },
-        { id: "msg-assistant-e2e", role: "assistant", text: "Execution result is visible in Foreman.", createdAt: Date.now() },
+        { id: "msg-assistant-e2e", role: "assistant", model: { providerID: "anthropic", id: "claude-sonnet-4-5" }, text: "## Migration verification\n\n**All 22 tests pass.** Rollback behavior is covered.\n\n### Remaining gaps\n\n- Corrupt database startup\n- Restore rollback after activation failure\n\n```bash\nnpm test\n```", createdAt: Date.now() },
         ...(followUpPayload?.text ? [{ id: "msg-follow-up-e2e", role: "user", text: followUpPayload.text, createdAt: Date.now() }] : []),
       ]
     }
     await route.fulfill({ response, json: payload })
   })
+  await page.route("**/api/tasks/*/events", (route) => route.fulfill({ status: 200, headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" }, body: ["event: ready", "data: {\"taskId\":\"e2e\"}", "", "event: progress", "data: {\"type\":\"session.execution.started\",\"properties\":{\"sessionID\":\"ses-e2e\"}}", "", "event: progress", "data: {\"type\":\"session.text.delta\",\"properties\":{\"sessionID\":\"ses-e2e\",\"assistantMessageID\":\"msg-live-e2e\",\"delta\":\"Streaming output from OpenCode\"}}", "", ""].join("\n") }));
   await page.route("**/api/tasks/*/start", async (route) => {
     startedTaskId = route.request().url().split("/").at(-2) ?? ""
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ result: { kind: "started", sessionId: "ses-e2e" } }) })
   })
   await page.route("**/api/tasks/*/follow-up", async (route) => {
     followUpPayload = route.request().postDataJSON() as { text?: string }
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ result: { kind: "followed-up", sessionId: "ses-e2e" } }) })
+    await new Promise<void>((resolve) => { releaseFollowUp = resolve })
+    await route.fulfill(failFollowUp
+      ? { status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "OpenCode runtime unavailable" } }) }
+      : { status: 200, contentType: "application/json", body: JSON.stringify({ result: { kind: "followed-up", sessionId: "ses-e2e" } }) })
   })
 
   const title = `Run task ${Date.now()}`
@@ -192,12 +198,42 @@ test("explicitly starts a Ready task and sends follow-up to its linked session",
   await page.reload()
   await page.getByRole("button", { name: new RegExp(title) }).click()
   await expect(page.getByRole("dialog")).toContainText("ses-e2e")
-  await expect(page.getByRole("region", { name: "OpenCode conversation" })).toContainText("Execution result is visible in Foreman.")
+  expect(await page.locator("body").evaluate((element) => getComputedStyle(element).overflow)).toBe("hidden")
+  const detailPanel = page.locator(".task-detail")
+  await expect.poll(() => detailPanel.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+  await detailPanel.evaluate((element) => { element.scrollTop = 260 })
+  await expect.poll(() => detailPanel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  await detailPanel.evaluate((element) => { element.scrollTop = 0 })
+  await expect.poll(() => detailPanel.evaluate((element) => element.scrollTop)).toBe(0)
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  await expect(page.getByRole("region", { name: "OpenCode conversation" })).toContainText("All 22 tests pass.")
+  await expect(page.getByRole("region", { name: "OpenCode conversation" })).toContainText("Streaming output from OpenCode")
+  await expect(page.getByRole("heading", { name: "Migration verification" })).toBeVisible()
+  await expect(page.locator('.conversation-message:not(.conversation-live) .conversation-model')).toContainText('anthropic / claude-sonnet-4-5')
+  await expect(page.getByRole("region", { name: "OpenCode conversation" })).toContainText("OpenCode 2.4.2")
+  await expect(page.getByRole("heading", { name: "Remaining gaps" })).toBeVisible()
+  await expect(page.getByRole("list")).toContainText("Corrupt database startup")
+  await expect(page.locator(".message-code")).toContainText("npm test")
   await expect(page.getByRole("link", { name: "Open in OpenCode" })).toHaveAttribute("href", "http://127.0.0.1:4096/server/aHR0cDovLzEyNy4wLjAuMTo0MDk2/session/ses-e2e")
   await page.getByLabel("Follow up in this session").fill("Add regression tests")
   await page.getByRole("button", { name: "Send follow-up" }).click()
   expect(followUpPayload).toEqual({ text: "Add regression tests" })
+  await expect(page.getByRole("status")).toContainText("Đang gửi yêu cầu tới OpenCode…")
+  await expect(page.getByRole("button", { name: "Đang gửi tới OpenCode…" })).toBeDisabled()
+  await expect(page.locator(".follow-up-submit .button-spinner")).toBeVisible()
+  releaseFollowUp()
+  await expect(page.getByRole("status")).toContainText("Đã gửi yêu cầu · OpenCode đang xử lý…")
   await expect(page.getByRole("region", { name: "OpenCode conversation" })).toContainText("Add regression tests")
+  failFollowUp = true
+  await page.getByLabel("Follow up in this session").fill("This request should fail")
+  await page.getByRole("button", { name: "Send follow-up" }).click()
+  await expect(page.getByRole("status")).toContainText("Đang gửi yêu cầu tới OpenCode…")
+  releaseFollowUp()
+  await expect(page.getByRole("status")).toContainText("Không thể gửi yêu cầu: OpenCode runtime unavailable")
+  await expect(page.getByRole("button", { name: "Send follow-up" })).toBeEnabled()
+  await page.getByRole("button", { name: "Close task details" }).click()
+  expect(await page.locator("body").evaluate((element) => getComputedStyle(element).overflow)).toBe("visible")
 })
 
 test("resends a failed initial prompt in the existing session without starting another", async ({ page }) => {

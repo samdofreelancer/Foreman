@@ -1,6 +1,6 @@
 import type { RuntimeConnectionSettings, RuntimeSettingsRepository, TaskRepository } from "../application/ports/repositories"
 import type { TaskExecutionService } from "../application/task-execution"
-import type { OpenCodeGateway } from "../application/ports/opencode-gateway"
+import type { OpenCodeGateway, RuntimeEvent } from "../application/ports/opencode-gateway"
 import { ConnectionSupervisor, type ConnectionState } from "../adapters/opencode/connection-supervisor"
 import { createDefaultSecretStore } from "../adapters/opencode/secret-store"
 import { RuntimeConnection } from "../adapters/opencode/runtime-connection"
@@ -18,6 +18,7 @@ export class ForemanRuntimeController {
   private readonly connection: RuntimeConnection
   private gateway?: OpenCodeGateway
   private supervisor?: ConnectionSupervisor
+  private readonly eventListeners = new Set<(event: RuntimeEvent) => void>()
 
   constructor(private readonly tasks: TaskRepository, private readonly execution: TaskExecutionService, options: {
     connection?: RuntimeConnection
@@ -32,6 +33,11 @@ export class ForemanRuntimeController {
 
   get activeGateway(): OpenCodeGateway | undefined {
     return this.supervisor?.state.status === "connected" ? this.gateway : undefined
+  }
+
+  subscribeEvents(listener: (event: RuntimeEvent) => void): () => void {
+    this.eventListeners.add(listener)
+    return () => this.eventListeners.delete(listener)
   }
 
   get status(): RuntimeStatus {
@@ -71,7 +77,10 @@ export class ForemanRuntimeController {
       gateway: this.gateway,
       linkedSessionIds: () => this.tasks.list().flatMap((task) => task.sessionID ? [task.sessionID] : []),
       reconcile: (sessionId, session) => this.execution.reconcileSession(sessionId, session),
-      onEvent: (event) => this.execution.handleRuntimeEvent(event),
+      onEvent: async (event) => {
+        for (const listener of this.eventListeners) listener(event)
+        await this.execution.handleRuntimeEvent(event)
+      },
     })
     const state = await this.supervisor.connect()
     if (state.status !== "connected") {
