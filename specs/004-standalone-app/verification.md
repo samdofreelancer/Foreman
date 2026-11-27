@@ -142,3 +142,68 @@ testing; this is expected for a native module and does not change the lockfile.
 
 The standalone server/UI and OpenCode adapter are intentionally not implemented in this
 phase. Managed OpenCode service lifecycle remains a Phase 3 release gate.
+
+## 2026-11-27 — Phase 2: Standalone server and local security
+
+### Implementation
+
+- Added `src/server/security.ts` for explicit loopback bind validation, Host validation
+  against the actual socket port, same-origin checks, and constant-time CSRF comparison.
+- Added `src/server/server.ts` with Fastify bootstrap, IPv4 loopback binding, optional
+  IPv6 loopback listener on the same port, health/session APIs, in-memory browser sessions,
+  same-origin mutation protection, restrictive response headers, redacted structured
+  logging, normalized errors, static asset serving, and SPA route fallback.
+- Added `src/server/cli.ts`. The CLI validates `FOREMAN_PORT` (default 4317), starts
+  Foreman without OpenCode, reports the local URL, optionally opens the browser, and
+  gracefully closes the listeners on SIGINT/SIGTERM. `FOREMAN_NO_OPEN=1` disables browser
+  opening.
+- Added `dev`, `build:server`, and `start` scripts. `build` now builds the server and the
+  temporary plugin reference bundle; the final standalone browser bundle remains a
+  Phase 4 deliverable because no standalone UI entrypoint exists yet.
+- Added security and CLI tests. Host spoofing uses `node:http` rather than Fetch because
+  the Fetch implementation normalizes/replaces the supplied Host header; this ensures the
+  DNS-rebinding-style test exercises the actual wire-level Host value.
+
+### Verification
+
+| Check | Result | Notes |
+|---|---|---|
+| Security integration tests | Pass | IPv4 bind, optional IPv6 bind, non-loopback rejection, occupied port, Host mismatch, cross-origin Origin, CSRF, security headers, static assets, SPA fallback, API 404. |
+| CLI tests | Pass | Starts and serves `/api/health` without OpenCode; validates ports; closes listeners. |
+| `npm run typecheck` | Pass | No TypeScript diagnostics after normalizing Fastify header/error types. |
+| `npm run build:server` | Pass | Emits `dist/server/cli.js` using tsup for Node 22. |
+
+Compiled CLI smoke test: started `node dist/server/cli.js` with `FOREMAN_PORT=4317` and
+`FOREMAN_NO_OPEN=1`; `/api/health` returned HTTP 200 with `{"status":"ok"}` while no
+OpenCode runtime was started. A request with `Host: attacker.example:4317` returned
+HTTP 403. The CLI process was interrupted and its owned listeners were closed. No
+OpenCode process or database was accessed.
+
+### Final Phase 2 verification
+
+| Check | Result | Notes |
+|---|---|---|
+| `npm test -- --run` | Pass | 15 test files, **80/80 tests passed**. |
+| `npm run typecheck` | Pass | No TypeScript diagnostics. |
+| `npm run check:architecture` | Pass | Typecheck plus 3/3 architecture boundary tests. |
+| `npm run build` | Pass | Node server CLI built to `dist/server/cli.js`; temporary plugin reference bundle built to `dist/gui-experimental.cjs`. This is still a transition build, not the final standalone UI distribution. |
+| `git diff --check` | Pass | No whitespace errors; only normal Windows LF→CRLF warnings. |
+
+The test suite includes 7 HTTP security integration tests and 4 standalone CLI tests.
+IPv6 loopback was available and passed in this Windows environment. The compiled server
+smoke test confirmed HTTP 200 health and HTTP 403 for an attacker-controlled Host value.
+No OpenCode process, service, endpoint, credential, or database was used during Phase 2.
+
+### Runtime matrix and package entrypoint re-check
+
+| Check | Node.js 22.23.5 | Node.js 24.15.0 |
+|---|---:|---:|
+| Full Vitest suite | Pass — 80/80 tests | Pass — 80/80 tests |
+| TypeScript typecheck | Pass | Pass |
+| Standalone server build (Node 22 target) | Pass | Pass |
+
+The Node 22 run used a Node-22-ABI rebuild of `better-sqlite3` before executing the full
+suite; the Node 24 run used the matching Node-24-ABI binding. `npm pack --dry-run` also
+passed for `foreman@0.1.0`, confirming the package metadata and `foreman` bin mapping are
+valid. The package remains transitional: it still contains the quarantined plugin
+reference bundle until the standalone UI and decommissioning gates are complete.

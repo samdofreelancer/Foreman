@@ -98,9 +98,11 @@ The standalone package will expose these stable commands:
 
 | Script | Contract |
 |---|---|
-| `dev` | Start the local API server and Vite development assets, loopback only |
-| `build` | Build the Node server and browser client |
-| `start` | Run the compiled local application |
+| `dev` | **Phase 2:** start the TypeScript Fastify server, loopback only; Vite UI integration is added with Phase 4 |
+| `build` | **Transition:** build the Node server and temporary plugin reference bundle; final standalone client output is added with Phase 4 |
+| `build:server` | Build `dist/server/cli.js` for Node.js |
+| `start` | Run the compiled local server entrypoint |
+| `foreman` | Package executable mapped to `dist/server/cli.js` |
 | `test` | Run all Vitest unit and integration tests |
 | `test:architecture` | Run import-boundary and architecture guardrail tests |
 | `typecheck` | Run TypeScript strict type checking |
@@ -108,7 +110,7 @@ The standalone package will expose these stable commands:
 
 Target build output:
 
-- `dist/server/index.js` — Node.js application entrypoint.
+- `dist/server/cli.js` — Node.js application CLI and server entrypoint (Phase 2 output).
 - `dist/client/index.html` plus hashed JS/CSS assets — browser application.
 - No CommonJS OpenCode plugin bundle in the final product.
 

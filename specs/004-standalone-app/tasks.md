@@ -72,22 +72,30 @@ handling, and read-only startup are covered by automated tests.
 
 Articles: Product Identity, V, VII, X.
 
-- [ ] T015 [P] Write tests for loopback-only binding, occupied-port failure, Host/Origin
+- [x] T015 [P] Write tests for loopback-only binding, occupied-port failure, Host/Origin
   rejection, CSRF validation, and disallowed cross-origin mutations.
-- [ ] T016 Implement the Fastify server bootstrap and same-origin API routing in
+- [x] T016 Implement the Fastify server bootstrap and same-origin API routing in
   `src/server/`; do not expose OpenCode endpoints or credentials to the browser.
-- [ ] T017 Implement explicit IPv4 loopback binding and IPv6 loopback support where
+- [x] T017 Implement explicit IPv4 loopback binding and IPv6 loopback support where
   available; fail closed if a non-loopback bind is requested.
-- [ ] T018 Implement Host/Origin validation, same-origin session handling, CSRF tokens,
+- [x] T018 Implement Host/Origin validation, same-origin session handling, CSRF tokens,
   safe response headers, and restrictive CORS defaults.
-- [ ] T019 Implement static SPA serving, API error normalization, request validation,
+- [x] T019 Implement static SPA serving, API error normalization, request validation,
   structured redacted logging, and graceful server shutdown.
-- [ ] T020 Implement CLI/application entrypoint that starts Foreman, reports the local
+- [x] T020 Implement CLI/application entrypoint that starts Foreman, reports the local
   URL, and opens the browser without requiring OpenCode Desktop.
-- [ ] T021 [P] Add security integration tests against the running HTTP server, including
+- [x] T021 [P] Add security integration tests against the running HTTP server, including
   DNS-rebinding-style Host mismatch and browser-origin mutation attempts.
 
 **Checkpoint**: Foreman launches independently and the HTTP service is loopback-only.
+**Complete (2026-11-27)**: T015-T021 implemented and verified. Fastify binds IPv4 loopback
+and IPv6 loopback when available; validates Host against the actual accepted socket port;
+rejects cross-origin browser requests; requires an in-memory same-origin session and
+timing-safe CSRF token for mutations; serves static assets and SPA routes; normalizes
+errors and redacts request-sensitive log fields. The standalone CLI starts without any
+OpenCode process, reports its local URL, optionally opens the browser, and closes both
+listeners gracefully. HTTP integration tests cover DNS-rebinding-style Host mismatch,
+cross-origin Origin rejection, CSRF, occupied ports, static fallback, and shutdown.
 
 ## Phase 3: OpenCode Adapter and Connection Lifecycle (US3, US5)
 

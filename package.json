@@ -1,12 +1,19 @@
 {
   "name": "foreman",
+  "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "foreman": "./dist/server/cli.js"
+  },
   "exports": {
     "./gui-experimental": "./dist/gui-experimental.cjs"
   },
   "scripts": {
-    "build": "npm run build:plugin-reference",
+    "dev": "tsx src/server/cli.ts",
+    "build": "npm run build:server && npm run build:plugin-reference",
+    "build:server": "tsup src/server/cli.ts --format esm --platform node --target node22 --out-dir dist/server --clean",
     "build:plugin-reference": "vite build",
+    "start": "node dist/server/cli.js",
     "watch": "vite build --watch",
     "test": "vitest",
     "test:architecture": "vitest run tests/architecture-boundaries.test.ts",
@@ -14,14 +21,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/static": "11.0.0",
     "@opencode/client": "2.4.2",
     "@opencode/plugin": "^2.0.4",
     "better-sqlite3": "12.8.0",
-    "effect": "^4.1.0"
+    "effect": "^4.1.0",
+    "fastify": "5.12.8",
+    "open": "11.0.4"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "^22",
+    "tsup": "9.0.0",
+    "tsx": "4.23.15",
     "typescript": "^5.7",
     "vite": "^7",
     "vite-plugin-solid": "^2.11",

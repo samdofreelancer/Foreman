@@ -273,6 +273,42 @@ fallback attempted a source build under Node 22 and could not complete because t
 does not have the Visual C++ toolset; the older compatible pin avoids making that toolset
 a prerequisite for the supported developer setup.
 
+## Phase 2 Implementation Contract
+
+Phase 2 touches Constitution Articles V, VII, and X. It introduces the standalone HTTP
+boundary without starting or depending on an OpenCode runtime. The existing plugin build
+remains quarantined as a temporary reference until standalone UI parity and final
+decommissioning gates are satisfied.
+
+- **Server**: Fastify is created by `src/server/server.ts`. Its bind host is restricted to
+  `127.0.0.1` or `::1`; the CLI starts IPv4 and adds IPv6 on the same port when the OS
+  supports it. A requested non-loopback bind is rejected before listen. Occupied ports
+  fail startup; the CLI does not silently select another externally visible interface.
+- **Host/Origin**: every request validates the Host header against a loopback hostname and
+  the actual accepted socket's local port. Origin, when present, must be exact same-origin
+  HTTP. State-changing requests require an Origin, a process-memory session cookie, and a
+  timing-safe CSRF token. No permissive CORS headers are emitted.
+- **Browser boundary**: session cookies are HttpOnly and SameSite=Strict. Security
+  response headers include CSP, frame denial, MIME sniffing protection, referrer policy,
+  and same-origin resource policy. API responses are not cached. Request-sensitive log
+  fields are redacted; request logging is disabled and unexpected failures are logged
+  without request bodies or credentials.
+- **Static delivery**: when a built client root is supplied, static assets are served and
+  non-API GET routes fall back to `index.html`. API misses remain JSON 404 responses.
+- **CLI**: `npm run dev` starts the TypeScript CLI; `npm run build:server` emits
+  `dist/server/cli.js`; `npm start` runs that compiled entrypoint; package installs expose
+  the `foreman` executable through `bin`. `FOREMAN_PORT` selects
+  a validated port (default 4317), and `FOREMAN_NO_OPEN=1` suppresses automatic browser
+  opening. The current aggregate `build` also creates the temporary plugin reference
+  bundle; it is not yet the final standalone client/server distribution because the UI
+  entrypoint is delivered in Phase 4.
+- **Lifecycle**: the CLI owns only the Fastify listeners it creates. Graceful close shuts
+  down both loopback listeners and clears in-memory browser sessions. No OpenCode service,
+  process, endpoint, or credential is touched in this phase.
+
+Phase 2 verification includes HTTP-level Host/Origin/CSRF tests, occupied-port and loopback
+tests, static SPA fallback tests, CLI startup without OpenCode, and listener shutdown.
+
 ## Risks
 
 | Risk | Mitigation |
