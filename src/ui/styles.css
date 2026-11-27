@@ -41,3 +41,5 @@
 
 /* Keep task details scrolling inside its own viewport on desktop and Windows. */
 .detail-backdrop{overflow:hidden;overscroll-behavior:contain}.task-detail{height:100dvh;max-height:100dvh;min-height:0;flex:0 1 680px;align-self:stretch;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;scrollbar-gutter:stable}
+
+.follow-up-working{display:flex;align-items:center;gap:10px;min-height:42px;padding:10px 12px;border:1px solid #66864a;border-radius:8px;background:#213322;color:#d7efc8;font-size:10px;line-height:1.5;font-weight:600}.follow-up-working .button-spinner{border-color:#d9ebd055;border-top-color:#e9f7df;flex:0 0 13px}
