@@ -6,6 +6,7 @@ import { SqliteDatabase } from "../src/adapters/persistence/sqlite/database"
 import { SqliteTaskRepository } from "../src/adapters/persistence/sqlite/task-repository"
 import { SqliteProjectRepository } from "../src/adapters/persistence/sqlite/project-repository"
 import { SqliteActivityRepository } from "../src/adapters/persistence/sqlite/activity-repository"
+import { ForemanBackupManager } from "../src/adapters/persistence/sqlite/backup-manager"
 import { startForemanServer, type ForemanServer } from "../src/server/server"
 
 const directories: string[] = []
@@ -17,17 +18,18 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
-async function workspace(options: { execution?: unknown; runtime?: unknown } = {}) {
+async function workspace(options: { execution?: unknown; runtime?: unknown; backup?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "foreman-api-"))
   directories.push(directory)
   const database = new SqliteDatabase(join(directory, "foreman.sqlite"))
   databases.push(database)
   const tasks = new SqliteTaskRepository(database)
+  const backup = options.backup ? new ForemanBackupManager(database) : undefined
   const server = await startForemanServer({ port: 0, logger: false, repositories: {
     tasks,
     projects: new SqliteProjectRepository(database),
     activities: new SqliteActivityRepository(database),
-  }, execution: options.execution as never, runtime: options.runtime as never })
+  }, execution: options.execution as never, runtime: options.runtime as never, backup })
   servers.push(server)
   const session = await fetch(`${server.url}/api/session`)
   const cookie = session.headers.get("set-cookie")?.split(";")[0] ?? ""
@@ -40,7 +42,10 @@ async function workspace(options: { execution?: unknown; runtime?: unknown } = {
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
-  return { request, tasks }
+  const upload = (path: string, archive: Buffer) => fetch(`${server.url}${path}`, {
+    method: "POST", headers: { origin: server.url, cookie, "x-csrf-token": csrfToken, "content-type": "application/vnd.foreman.backup" }, body: new Uint8Array(archive),
+  })
+  return { request, upload, tasks, database }
 }
 
 describe("standalone workspace API", () => {
@@ -193,5 +198,36 @@ describe("standalone workspace API", () => {
     expect((await request("/api/inbox/questions/form-api/reply", "POST", { answers: [["yes"]] })).status).toBe(200)
     expect(gateway.replyQuestion).toHaveBeenCalledWith({ requestId: "form-api", answers: [["yes"]] })
     expect((await request("/api/inbox/permissions/perm-api/reply", "POST", { response: "approve-all" })).status).toBe(400)
+  })
+
+  it("exports a backup, previews restore, and replaces data only after explicit confirmation", async () => {
+    const source = await workspace({ backup: true })
+    await source.request("/api/tasks", "POST", { title: "From archive", projectDirectory: "/work/archive" })
+    const exported = await source.request("/api/backup")
+    expect(exported.status).toBe(200)
+    expect(exported.headers.get("content-type")).toContain("application/vnd.foreman.backup")
+    const archive = Buffer.from(await exported.arrayBuffer())
+
+    const target = await workspace({ backup: true })
+    await target.request("/api/tasks", "POST", { title: "Current data", projectDirectory: "/work/current" })
+    const previewResponse = await target.upload("/api/backup/preview", archive)
+    expect(previewResponse.status).toBe(200)
+    const { preview } = await previewResponse.json() as { preview: { token: string; counts: { tasks: number } } }
+    expect(preview.counts.tasks).toBe(1)
+    expect((await target.request("/api/tasks")).status).toBe(200)
+    const restored = await target.request("/api/backup/restore", "POST", { token: preview.token })
+    expect(restored.status).toBe(200)
+    expect(await target.request("/api/tasks").then((response) => response.json())).toMatchObject({ tasks: [{ title: "From archive" }] })
+  })
+
+  it("blocks restore while OpenCode is connected", async () => {
+    const runtime = { status: { status: "connected" }, close: vi.fn(async () => undefined) }
+    const source = await workspace({ backup: true })
+    const archive = Buffer.from(await (await source.request("/api/backup")).arrayBuffer())
+    const target = await workspace({ backup: true, runtime })
+    const { preview } = await (await target.upload("/api/backup/preview", archive)).json() as { preview: { token: string } }
+    const restored = await target.request("/api/backup/restore", "POST", { token: preview.token })
+    expect(restored.status).toBe(409)
+    expect(await restored.json()).toMatchObject({ error: { code: "RUNTIME_MUST_BE_DISCONNECTED" } })
   })
 })

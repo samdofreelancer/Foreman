@@ -311,6 +311,57 @@ passed for `foreman@0.1.0`, confirming the package metadata and `foreman` bin ma
 valid. The package remains transitional: it still contains the quarantined plugin
 reference bundle until the standalone UI and decommissioning gates are complete.
 
+## 2026-11-28 — Phase 9: Backup, Restore, and Data Safety
+
+### Implementation
+
+- Added a single-file `.fbackup` format with a versioned JSON manifest, exact Foreman
+  schema version, SQLite byte length, and SHA-256 checksum. Snapshots use SQLite's online
+  backup API, so backup is available while OpenCode is disconnected and does not require
+  closing Foreman.
+- Before export, the snapshot's `runtime_connection_settings` rows are deleted and the
+  database is compacted with `VACUUM`, ensuring endpoints, usernames, auto-connect flags,
+  and OS-vault references are not present in the archive. The schema/table remains so the
+  restored database is compatible. OpenCode credentials, provider secrets, and transcripts
+  are not exported.
+- Added archive parser limits (256 MB), strict manifest validation, checksum verification,
+  schema-version matching, and staged SQLite `integrity_check`. Restore additionally
+  requires the known Foreman tables and allowlisted schema objects; unexpected database
+  objects or non-empty runtime settings are rejected.
+- Added a ten-minute, random one-time restore preview token. Preview reports archive time,
+  schema version and task/project/activity counts without touching active data. Confirmation
+  is a separate CSRF-protected action.
+- Restore is blocked while OpenCode is connected/stale or any task remains in Doing. The
+  active database is checkpointed and closed, the prior DB is copied to a uniquely named
+  rollback file, and the validated staged DB replaces the active file. The same
+  `SqliteDatabase` instance reopens the new connection, preserving repository references.
+  Failed activation attempts restore and reopen the rollback copy; if automatic rollback
+  itself fails, the error identifies the retained rollback file.
+- Added Settings UI for backup download, restore upload/validation preview, explicit
+  confirmation, progress/disabled states, success/failure feedback, counts, and a clear
+  warning that restore replaces current Foreman task data. Added `docs/backup-restore.md`
+  with operator instructions and rollback recovery guidance.
+
+### Verification
+
+| Check | Result | Notes |
+|---|---|---|
+| Full Vitest suite | Pass | **27 test files, 165/165 tests passed**. Includes valid archive, malformed manifest, unsupported schema, checksum corruption, corrupt SQLite with internally consistent checksum, runtime secret/vault exclusion, explicit confirmation, successful replacement, rollback after failed activation and retained rollback copy. |
+| Backup/restore API tests | Pass | Download, raw archive upload, preview, confirmation, restored task data, and restore blocked while OpenCode is connected. |
+| Playwright E2E | Pass | **29 passed, 1 skipped** across desktop Chromium (1440px) and mobile Chromium (390px). Covers backup download, restore preview, confirmation, success state, and responsive Settings UI. |
+| TypeScript typecheck | Pass | `npm run typecheck`. |
+| Architecture checks | Pass | `npm run check:architecture`; 4/4 architecture boundary tests. Backup manager resides in the SQLite adapter boundary; application/domain boundaries remain clean. |
+| Production build | Pass | `npm run build`; standalone client, Node server and quarantined plugin-reference bundle. |
+| `git diff --check` | Pass | No whitespace errors; expected Windows LF→CRLF warnings only. |
+
+### Safety boundary
+
+Restore requires the OpenCode runtime to be disconnected and no task to remain in Doing.
+The archive intentionally omits OpenCode connection settings; the user reconnects the
+runtime after restore. Rollback files are retained in the Foreman data directory and are
+not automatically deleted. Archive schema migration across different Foreman versions is
+not supported; the schema version must match exactly. Archive size is limited to 256 MB.
+
 ## 2026-11-27 — Phase 3: OpenCode adapter and connection lifecycle
 
 ### Implementation

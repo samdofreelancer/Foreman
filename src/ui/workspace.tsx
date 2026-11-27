@@ -10,6 +10,7 @@ import type { AppRoute } from "./routes"
 type RuntimeView = { status: "connected" | "stale" | "connecting" | "disconnected"; mode?: "managed" | "external"; version?: string; reason?: string; sessionBaseUrl?: string }
 type SavedRuntimeSettings = { mode: "managed" | "external"; endpoint?: string; executable?: string; username?: string; credentialRequired: boolean; autoConnect: boolean; updatedAt: number }
 type HealthView = { status: "ok" | "degraded"; server?: { status: string; uptimeSeconds: number; nodeVersion: string }; database?: { status: string; schemaVersion: number; message?: string }; runtime?: RuntimeView }
+type BackupPreview = { token: string; manifest: { createdAt: string; schemaVersion: number; databaseBytes: number }; counts: { tasks: number; projects: number; activities: number } }
 type Props = { route: AppRoute; csrfToken: string; onNavigate(path: AppRoute): void; onRuntimeChange(status: RuntimeView): void; onInboxCountChange(count: number): void }
 const columns: Array<{ id: TaskColumn; label: string; hint: string }> = [
   { id: "todo", label: "Todo", hint: "Ideas and upcoming work" },
@@ -93,6 +94,9 @@ export function Workspace(props: Props) {
   const [healthInfo, setHealthInfo] = createSignal<HealthView>()
   const [discoveredProjects, setDiscoveredProjects] = createSignal<Array<{ directory: string; name?: string }>>([])
   const [discoveryBusy, setDiscoveryBusy] = createSignal(false)
+  const [backupBusy, setBackupBusy] = createSignal(false)
+  const [backupNotice, setBackupNotice] = createSignal("")
+  const [restorePreview, setRestorePreview] = createSignal<BackupPreview>()
   const [followUpText, setFollowUpText] = createSignal("")
 
   const handleEscape = (event: KeyboardEvent) => {
@@ -285,6 +289,47 @@ export function Workspace(props: Props) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "OpenCode could not be reconnected.") }
     finally { setRuntimeBusy(false) }
   }
+  const downloadBackup = async () => {
+    setBackupBusy(true); setError(""); setBackupNotice("")
+    try {
+      const response = await fetch("/api/backup", { credentials: "same-origin", headers: { accept: "application/vnd.foreman.backup" } })
+      if (!response.ok) throw new Error(`Backup failed (${response.status})`)
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url; link.download = `foreman-backup-${new Date().toISOString().replaceAll(":", "-")}.fbackup`
+      document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url)
+      setBackupNotice("Verified backup downloaded. Keep it somewhere separate from this computer.")
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Backup could not be created.") }
+    finally { setBackupBusy(false) }
+  }
+  const previewBackupRestore = async (event: Event) => {
+    const input = event.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    if (!file) return
+    setBackupBusy(true); setError(""); setBackupNotice(""); setRestorePreview(undefined)
+    try {
+      const response = await fetch("/api/backup/preview", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/vnd.foreman.backup", "x-csrf-token": props.csrfToken }, body: file })
+      const payload = await response.json() as { preview?: BackupPreview; error?: { message?: string } }
+      if (!response.ok || !payload.preview) throw new Error(payload.error?.message || `Restore preview failed (${response.status})`)
+      setRestorePreview(payload.preview)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Backup could not be validated.") }
+    finally { setBackupBusy(false); input.value = "" }
+  }
+  const confirmBackupRestore = async () => {
+    const preview = restorePreview()
+    if (!preview) return
+    const confirmed = window.confirm(`Restore this backup from ${new Date(preview.manifest.createdAt).toLocaleString()}?\n\nIt will replace all current Foreman tasks, projects and activity. ${preview.counts.tasks} tasks, ${preview.counts.projects} projects and ${preview.counts.activities} activity records will be restored. OpenCode connection settings are not included. Disconnect OpenCode and ensure no task is actively running before continuing.`)
+    if (!confirmed) return
+    setBackupBusy(true); setError(""); setBackupNotice("")
+    try {
+      await request("/api/backup/restore", props.csrfToken, "POST", { token: preview.token })
+      setRestorePreview(undefined)
+      setBackupNotice("Restore completed. Your previous database was retained as a rollback copy.")
+      await refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Restore could not be completed.") }
+    finally { setBackupBusy(false) }
+  }
   const startSelected = async () => {
     const task = selected(); if (!task) return
     setRuntimeBusy(true); setError("")
@@ -378,6 +423,7 @@ export function Workspace(props: Props) {
     </Show>
     <Show when={!loading() && props.route === "/settings"}>
       <section class="health-panel"><div class="section-heading"><div><p class="eyebrow">SYSTEM STATUS</p><h2>Application health</h2><p>Foreman service, local persistence and OpenCode are monitored independently.</p></div><button class="button button-quiet" onClick={() => void refreshOperationalStatus()}>Refresh status</button></div><div class="health-grid"><article class="health-card"><span class={`health-indicator ${healthInfo()?.server?.status === "ready" ? "health-good" : "health-bad"}`}/><div><strong>Foreman server</strong><span>{healthInfo()?.server?.status === "ready" ? "Running" : "Unavailable"}</span><small>{healthInfo()?.server ? `Node ${healthInfo()!.server!.nodeVersion} · uptime ${healthInfo()!.server!.uptimeSeconds}s` : "Status unavailable"}</small></div></article><article class="health-card"><span class={`health-indicator ${healthInfo()?.database?.status === "ready" ? "health-good" : "health-bad"}`}/><div><strong>SQLite database</strong><span>{healthInfo()?.database?.status === "ready" ? "Healthy" : "Degraded"}</span><small>{healthInfo()?.database ? `Schema v${healthInfo()!.database!.schemaVersion}` : "Status unavailable"}{healthInfo()?.database?.message ? ` · ${healthInfo()!.database!.message}` : ""}</small></div></article><article class="health-card"><span class={`health-indicator ${runtimeStatus().status === "connected" ? "health-good" : runtimeStatus().status === "stale" ? "health-warn" : "health-muted"}`}/><div><strong>OpenCode runtime</strong><span>{runtimeStatus().status === "connected" ? `Connected · ${runtimeStatus().version ?? "2.4.x"}` : runtimeStatus().status === "stale" ? "Connection stale" : runtimeStatus().status}</span><small>{runtimeStatus().mode ? `${runtimeStatus().mode} mode` : "Independent of Foreman app health"}{runtimeStatus().reason ? ` · ${runtimeStatus().reason}` : ""}</small></div></article></div></section>
+      <section class="backup-panel"><div class="section-heading"><div><p class="eyebrow">DATA SAFETY</p><h2>Backup & restore</h2><p>Export Foreman tasks, projects and activity. Works while OpenCode is offline.</p></div><button class="button button-primary" disabled={backupBusy() || healthInfo()?.database?.status !== "ready"} onClick={() => void downloadBackup()}>{backupBusy() ? "Preparing…" : "Download backup"}</button></div><div class="backup-policy"><span>Included: tasks, projects, activity and schema</span><span>Excluded: OpenCode credentials, connection settings and transcripts</span></div><label class="backup-upload">Restore from backup<input type="file" accept=".fbackup,application/vnd.foreman.backup" disabled={backupBusy()} onChange={previewBackupRestore}/><small>Select a .fbackup file to validate it and preview its contents. Current data is not changed during preview.</small></label><Show when={restorePreview()}><div class="restore-preview"><div><strong>Backup verified</strong><span>Created {new Date(restorePreview()!.manifest.createdAt).toLocaleString()} · schema v{restorePreview()!.manifest.schemaVersion}</span></div><div class="restore-counts"><span>{restorePreview()!.counts.tasks} tasks</span><span>{restorePreview()!.counts.projects} projects</span><span>{restorePreview()!.counts.activities} activity records</span></div><p>Restore replaces current Foreman data. Disconnect OpenCode and ensure no task is running before confirming. A rollback copy of the current database will be retained.</p><div class="detail-actions"><button class="button button-danger" disabled={backupBusy() || runtimeStatus().status === "connected" || runtimeStatus().status === "stale"} onClick={() => void confirmBackupRestore()}>Confirm restore</button><button class="button button-quiet" disabled={backupBusy()} onClick={() => setRestorePreview(undefined)}>Cancel</button></div></div></Show><Show when={backupNotice()}><p class="backup-success" role="status">{backupNotice()}</p></Show></section>
       <section class="runtime-settings-panel">
         <div class="section-heading"><div><p class="eyebrow">OPENCODE RUNTIME</p><h2>{runtimeStatus().status === "connected" ? "Runtime connected" : "Connect a runtime"}</h2><p>{runtimeStatus().status === "connected" ? `OpenCode ${runtimeStatus().version ?? "2.4.x"} · ${runtimeStatus().mode ?? "runtime"} mode` : "Foreman requires an OpenCode 2.4.x server. Your global CLI is not modified."}</p></div><div class="runtime-header-actions"><Show when={runtimeStatus().status === "connected"}><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void disconnectRuntime()}>Disconnect</button></Show><Show when={runtimeStatus().status !== "connected" && savedRuntimeSettings()}><button class="button button-primary" disabled={runtimeBusy() || savedRuntimeSettings()!.credentialRequired} onClick={() => void reconnectRuntime()}>{runtimeBusy() ? "Reconnecting…" : "Reconnect saved runtime"}</button></Show></div></div>
         <Show when={savedRuntimeSettings()}><div class="saved-runtime-note"><strong>Saved connection</strong><span>{savedRuntimeSettings()!.mode === "managed" ? `Managed · ${savedRuntimeSettings()!.executable || "opencode on PATH"}` : `External · ${savedRuntimeSettings()!.endpoint}`}</span><small>{savedRuntimeSettings()!.autoConnect ? "Automatically reconnects when Foreman starts." : "Auto-connect is off. Use Reconnect to start this saved configuration."}{savedRuntimeSettings()!.credentialRequired ? " Password is not persisted; enter it again to reconnect." : ""}</small></div></Show>

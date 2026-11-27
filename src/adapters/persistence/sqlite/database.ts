@@ -80,10 +80,10 @@ export class SqliteDatabase implements TransactionRunner {
     const stagedCopy = join(dirname(this.path), `${basename(this.path)}.restore-${randomUUID()}.sqlite`)
     copyFileSync(stagedPath, stagedCopy)
     this.connection.pragma("wal_checkpoint(TRUNCATE)")
+    copyFileSync(this.path, rollbackPath)
     this.connection.close()
     this.closed = true
     try {
-      renameSync(this.path, rollbackPath)
       renameSync(stagedCopy, this.path)
       this.openConnection()
       this.assertIntegrity()
@@ -91,10 +91,17 @@ export class SqliteDatabase implements TransactionRunner {
       return rollbackPath
     } catch (error) {
       try { this.connection?.close() } catch { /* best effort before rollback */ }
-      try { if (existsSync(this.path)) rmSync(this.path, { force: true }) } catch { /* preserve rollback attempt */ }
-      try { if (existsSync(rollbackPath)) renameSync(rollbackPath, this.path) } catch { /* surfaced below */ }
-      this.closed = true
-      this.openConnection()
+      try {
+        if (existsSync(this.path)) rmSync(this.path, { force: true })
+        if (existsSync(rollbackPath)) copyFileSync(rollbackPath, this.path)
+        rmSync(`${this.path}-wal`, { force: true })
+        rmSync(`${this.path}-shm`, { force: true })
+        this.closed = true
+        this.openConnection()
+      } catch (rollbackError) {
+        this.closed = true
+        throw new Error(`Restore failed and automatic rollback could not reopen the database. The rollback copy was retained at ${rollbackPath}.`, { cause: rollbackError })
+      }
       throw error
     } finally {
       if (existsSync(stagedCopy)) rmSync(stagedCopy, { force: true })

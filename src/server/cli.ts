@@ -56,6 +56,7 @@ export async function startForemanCli(options: ForemanCliOptions = {}): Promise<
         : undefined,
       execution,
       runtime: runtimeController,
+      backup: bootstrap.backup,
       staticRoot: options.staticRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../dist/client"),
       health: () => {
         const database = bootstrap.health()

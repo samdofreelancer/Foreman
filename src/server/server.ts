@@ -14,6 +14,7 @@ import type { TaskRepository, ProjectRepository, ActivityRepository } from "../a
 import type { TaskExecutionService } from "../application/task-execution"
 import type { ForemanRuntimeController, RuntimeConnectInput } from "./runtime-controller"
 import { InboxService } from "../application/inbox"
+import type { ForemanBackupManager } from "../adapters/persistence/sqlite/backup-manager"
 
 const SESSION_COOKIE = "foreman_session"
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
@@ -29,6 +30,7 @@ export type ForemanServerOptions = {
   repositories?: { tasks: TaskRepository; projects: ProjectRepository; activities: ActivityRepository; transaction?: <T>(operation: () => T) => T }
   execution?: TaskExecutionService
   runtime?: ForemanRuntimeController
+  backup?: ForemanBackupManager
 }
 
 export type ForemanServer = {
@@ -55,6 +57,7 @@ function createFastify(options: ForemanServerOptions): FastifyInstance {
     trustProxy: false,
     bodyLimit: 1024 * 1024,
   })
+  app.addContentTypeParser("application/vnd.foreman.backup", { parseAs: "buffer", bodyLimit: 256 * 1024 * 1024 }, (_request, body, done) => done(null, body))
 
   app.addHook("onRequest", async (request, reply) => {
     const requestHost = request.headers.host
@@ -115,7 +118,7 @@ function createFastify(options: ForemanServerOptions): FastifyInstance {
 
   app.get("/api/health", async () => options.health?.() ?? ({ status: "ok" }))
 
-  if (options.repositories) registerWorkspaceApi(app, options.repositories, options.execution, options.runtime)
+  if (options.repositories) registerWorkspaceApi(app, options.repositories, options.execution, options.runtime, options.backup)
 
   app.get("/api/session", async (request, reply) => {
     const now = Date.now()
@@ -167,6 +170,7 @@ function registerWorkspaceApi(
   repositories: NonNullable<ForemanServerOptions["repositories"]>,
   execution?: TaskExecutionService,
   runtime?: ForemanRuntimeController,
+  backup?: ForemanBackupManager,
 ) {
   const { tasks, projects, activities } = repositories
   const transaction = repositories.transaction ?? (<T>(operation: () => T) => operation())
@@ -177,6 +181,30 @@ function registerWorkspaceApi(
   }
   const fail = (reply: import("fastify").FastifyReply, status: number, code: string, message: string) =>
     reply.code(status).send({ error: { code, message } })
+
+  if (backup) {
+    app.get("/api/backup", async (_request, reply) => {
+      try {
+        const archive = await backup.createBackup()
+        return reply.header("content-type", "application/vnd.foreman.backup")
+          .header("content-disposition", `attachment; filename="foreman-backup-${new Date().toISOString().replaceAll(":", "-")}.fbackup"`)
+          .header("content-length", archive.byteLength)
+          .send(archive)
+      } catch { return fail(reply, 500, "BACKUP_FAILED", "Foreman could not create a verified backup. Your current database was not changed.") }
+    })
+    app.post("/api/backup/preview", async (request, reply) => {
+      if (!Buffer.isBuffer(request.body)) return fail(reply, 400, "INVALID_BACKUP", "Upload a Foreman backup file to preview restore.")
+      try { return { preview: backup.previewRestore(request.body) } }
+      catch (error) { return fail(reply, 400, "BACKUP_INVALID", error instanceof Error ? error.message : "Backup validation failed.") }
+    })
+    app.post("/api/backup/restore", async (request, reply) => {
+      if (!record(request.body) || typeof request.body.token !== "string") return fail(reply, 400, "RESTORE_CONFIRMATION_REQUIRED", "Confirm the current restore preview before replacing Foreman data.")
+      if (runtime?.status.status === "connected" || runtime?.status.status === "stale") return fail(reply, 409, "RUNTIME_MUST_BE_DISCONNECTED", "Disconnect OpenCode before restoring Foreman data. Backup files never contain OpenCode sessions or transcripts.")
+      if (tasks.list().some((task) => task.column === "doing")) return fail(reply, 409, "TASK_EXECUTION_ACTIVE", "A task is still marked Doing. Wait for execution to finish or reconcile it before restoring.")
+      try { return { result: backup.confirmRestore(request.body.token) } }
+      catch (error) { return fail(reply, 409, "RESTORE_FAILED", error instanceof Error ? error.message : "Restore could not be completed.") }
+    })
+  }
 
   const inbox = new InboxService({
     tasks,

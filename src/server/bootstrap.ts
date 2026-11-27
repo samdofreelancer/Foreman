@@ -6,7 +6,7 @@ import { SqliteTaskRepository } from "../adapters/persistence/sqlite/task-reposi
 import { SqliteProjectRepository } from "../adapters/persistence/sqlite/project-repository"
 import { SqliteActivityRepository } from "../adapters/persistence/sqlite/activity-repository"
 import { SqliteRuntimeSettingsRepository } from "../adapters/persistence/sqlite/runtime-settings-repository"
-import { ForemanBackupManager } from "../application/backup-manager"
+import { ForemanBackupManager } from "../adapters/persistence/sqlite/backup-manager"
 
 export type ForemanBootstrap = {
   databasePath: string

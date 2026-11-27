@@ -30,6 +30,7 @@ export async function createBackupArchive(database: SqliteDatabase): Promise<Buf
     const sanitized = new SqliteDatabase(snapshotPath)
     try {
       sanitized.transaction(() => sanitized.connection.prepare("DELETE FROM runtime_connection_settings").run())
+      sanitized.connection.exec("VACUUM")
       sanitized.connection.pragma("wal_checkpoint(TRUNCATE)")
     } finally { sanitized.close() }
     const snapshot = readFileSync(snapshotPath)

@@ -316,16 +316,31 @@ the current runtime project list. Manual project registration remains available 
 
 Articles: V, VI, VII, IX, X.
 
-- [ ] T058 [P] Write backup/restore tests for valid archive, invalid manifest, schema
+- [x] T058 [P] Write backup/restore tests for valid archive, invalid manifest, schema
   mismatch, corrupt database, secret exclusion, and rollback after failed restore.
-- [ ] T059 Implement user-triggered SQLite backup with manifest, schema version, and
+- [x] T059 Implement user-triggered SQLite backup with manifest, schema version, and
   integrity verification; exclude credentials, provider secrets, and transcripts.
-- [ ] T060 Implement restore preview and confirmation; stop writes, validate staged DB,
+- [x] T060 Implement restore preview and confirmation; stop writes, validate staged DB,
   atomically replace active DB, and retain a rollback copy.
-- [ ] T061 Add UI for backup, restore, progress, success/failure, and clear warning that
+- [x] T061 Add UI for backup, restore, progress, success/failure, and clear warning that
   restore replaces current Foreman task data.
 
 **Checkpoint**: backup works with OpenCode offline; restore is safe and reversible.
+
+**Implementation checkpoint (2026-11-28)**: T058-T061 implemented and verified. Foreman
+exports a single `.fbackup` file using SQLite's online backup API, a versioned manifest,
+schema version, database size and SHA-256 digest. The exported snapshot is sanitized to
+remove all runtime connection settings (including OS-vault references), then compacted
+with `VACUUM` and integrity-checked. No OpenCode credential, provider secret or transcript
+is included. Restore is a two-step preview/confirm flow with a ten-minute one-time token;
+it validates archive/checksum/schema/integrity and an allowlist of Foreman database objects
+before staging. Restore is refused while OpenCode is connected/stale or any task is Doing.
+The active SQLite connection is closed for replacement, the prior DB is retained beside it
+as a rollback copy, and the same database object is reopened so existing repositories stay
+valid. If activation fails, Foreman restores and reopens the prior DB before returning an
+error. Settings exposes backup download, restore upload/preview, confirmation, status and
+the destructive-data replacement warning. Operational details are in
+`docs/backup-restore.md`.
 
 ## Phase 10: Security, Regression, and Plugin Decommissioning
 

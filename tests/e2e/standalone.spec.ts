@@ -286,6 +286,35 @@ test("shows independent Foreman, SQLite and OpenCode health on Settings", async 
   await expect(page.getByRole("button", { name: "Reconnect saved runtime" })).toBeDisabled()
 })
 
+test("downloads a backup and requires a verified preview plus confirmation before restore", async ({ page }) => {
+  let confirmedToken = ""
+  await page.route("**/api/backup", (route) => route.fulfill({ status: 200, contentType: "application/vnd.foreman.backup", body: Buffer.from("FOREMAN-BACKUP-TEST") }))
+  await page.route("**/api/backup/preview", async (route) => {
+    expect(route.request().headers()["content-type"]).toContain("application/vnd.foreman.backup")
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ preview: {
+      token: "restore-preview-token", manifest: { createdAt: "2026-11-28T00:00:00.000Z", schemaVersion: 3, databaseBytes: 4096 },
+      counts: { tasks: 12, projects: 3, activities: 48 }, expiresInSeconds: 600,
+    } }) })
+  })
+  await page.route("**/api/backup/restore", async (route) => {
+    confirmedToken = (route.request().postDataJSON() as { token: string }).token
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ result: { restored: true, rollbackAvailable: true } }) })
+  })
+  await page.goto("/settings")
+  await expect(page.getByRole("heading", { name: "Backup & restore" })).toBeVisible()
+  const download = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Download backup" }).click()
+  expect((await download).suggestedFilename()).toMatch(/foreman-backup-.*\.fbackup/)
+
+  await page.getByLabel("Restore from backup").setInputFiles({ name: "safe-copy.fbackup", mimeType: "application/vnd.foreman.backup", buffer: Buffer.from("test archive") })
+  await expect(page.getByText("Backup verified")).toBeVisible()
+  await expect(page.getByText("12 tasks")).toBeVisible()
+  page.once("dialog", (dialog) => dialog.accept())
+  await page.getByRole("button", { name: "Confirm restore" }).click()
+  await expect(page.getByText("Restore completed. Your previous database was retained as a rollback copy.")).toBeVisible()
+  expect(confirmedToken).toBe("restore-preview-token")
+})
+
 test("discovers connected OpenCode projects and imports them without removing manual project entry", async ({ page }) => {
   let imported = false
   await page.route("**/api/runtime", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ runtime: { status: "connected", mode: "external", version: "2.4.2" } }) }))
