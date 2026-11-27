@@ -78,6 +78,14 @@ describe("task domain", () => {
     expect(() => updateTask(task, { column: "doing" }, 200)).toThrow()
   })
 
+  it("keeps Doing transitions under runtime control even for linked tasks", () => {
+    const task = createTask({ title: "Runtime", projectDirectory: "/projects/foreman" }, 100, "task-runtime")
+    const started = markTaskStarted(task, "ses-runtime", 200)
+    expect(() => updateTask(started, { column: "ready" }, 300)).toThrow(/managed by runs/i)
+    expect(() => updateTask(started, { column: "done" }, 300)).toThrow(/managed by runs/i)
+    expect(() => updateTask(task, { column: "doing" }, 200)).toThrow(/managed by runs/i)
+  })
+
   it("guards an unexpected store value and resets it to an empty array", () => {
     expect(safeTaskArray(undefined)).toEqual([])
     expect(safeTaskArray({ not: "an array" })).toEqual([])

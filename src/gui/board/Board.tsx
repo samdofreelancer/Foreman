@@ -105,7 +105,7 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
     )
     clearDrag()
 
-    if (resolution.kind !== "start" && resolution.kind !== "move") {
+    if (resolution.kind !== "move") {
       if (resolution.kind === "reject" && resolution.reason === "managed") {
         props.ctx.toast.show({ title: "Doing is managed by runs", variant: "error" })
       }
@@ -114,22 +114,6 @@ export function Board(props: { ctx: SetupContext<typeof definition> }) {
 
     const task = tasks().find((item) => item.id === resolution.taskID)
     if (!task) return
-
-    if (resolution.kind === "start") {
-      props.ctx.stores.tasks.update((draft) => {
-        const index = draft.findIndex((item) => item.id === task.id)
-        if (index >= 0 && !draft[index].sessionID) {
-          draft[index].column = "ready"
-          draft[index].updatedAt = Date.now()
-        }
-      })
-      void startTask(
-        props.ctx as unknown as StartTaskContext,
-        { ...task, column: "ready" },
-        task.column,
-      )
-      return
-    }
 
     void (async () => {
       if (resolution.to === "done" && task.sessionID) {

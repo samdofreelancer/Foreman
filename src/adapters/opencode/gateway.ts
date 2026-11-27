@@ -49,8 +49,8 @@ export class OpenCodeGatewayAdapter implements OpenCodeGateway {
     return (await this.client.project.list()).map((project) => ({ directory: project.canonical, name: project.name ?? undefined }))
   }
 
-  async createSession(input: { directory: string; title: string }): Promise<RuntimeSession> {
-    const session = await this.client.session.create({ title: input.title, location: { directory: input.directory } })
+  async createSession(input: { directory: string; title: string; agent?: string; model?: { providerID: string; id: string } }): Promise<RuntimeSession> {
+    const session = await this.client.session.create({ title: input.title, agent: input.agent, model: input.model, location: { directory: input.directory } })
     return mapSession(session)
   }
 
@@ -59,7 +59,7 @@ export class OpenCodeGatewayAdapter implements OpenCodeGateway {
   }
 
   async sendFollowUp(input: { sessionId: string; text: string }) {
-    await this.client.session.prompt({ sessionID: input.sessionId, text: input.text })
+    await this.client.session.prompt({ sessionID: input.sessionId, text: input.text, delivery: "queue" })
   }
 
   async interrupt(sessionId: string) {

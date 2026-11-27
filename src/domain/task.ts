@@ -18,6 +18,8 @@ export const Task = Schema.Struct({
   model: Schema.optional(TaskModel),
   column: TaskColumn,
   sessionID: Schema.optional(Schema.String),
+  initialPromptState: Schema.optional(Schema.Literals(["pending", "sent", "failed"])),
+  startPending: Schema.optional(Schema.Boolean),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
   startedAt: Schema.optional(Schema.Number),
@@ -88,8 +90,8 @@ export function updateTask(existing: Task, patch: TaskPatch, now: number): Task 
   if (!Number.isFinite(now) || now < existing.updatedAt) {
     throw new Error("Task timestamp cannot move backwards")
   }
-  if (patch.column === "doing" && !existing.sessionID) {
-    throw new Error("Doing is managed by runs")
+  if (patch.column === "doing" || (existing.column === "doing" && patch.column !== undefined)) {
+    throw new Error("Doing transitions are managed by runs")
   }
   const next = {
     ...existing,
@@ -136,11 +138,31 @@ export function markTaskStarted(task: Task, sessionID: string, now: number): Tas
   return {
     ...task,
     sessionID,
+    initialPromptState: "pending",
     startedAt: now,
     column: "doing",
     updatedAt: now,
     lastError: undefined,
   }
+}
+
+export function markInitialPromptState(task: Task, state: "pending" | "sent" | "failed", error: string | undefined, now: number): Task {
+  assertTaskTimestamp(task, now)
+  if (!task.sessionID) throw new Error("An OpenCode session must be linked before sending its initial prompt")
+  return { ...task, initialPromptState: state, lastError: error, updatedAt: now }
+}
+
+export function applyRuntimeCompletion(task: Task, outcome: "succeeded" | "failed" | "interrupted", error: string | undefined, now: number): Task {
+  assertTaskTimestamp(task, now)
+  if (!task.sessionID) throw new Error("Runtime updates require a linked OpenCode session")
+  if (outcome === "succeeded") return { ...task, column: "done", finishedAt: now, lastError: undefined, updatedAt: now }
+  return { ...task, column: "doing", finishedAt: undefined, lastError: error ?? (outcome === "interrupted" ? "Execution interrupted" : "Execution failed"), updatedAt: now }
+}
+
+export function markFollowUpQueued(task: Task, now: number): Task {
+  assertTaskTimestamp(task, now)
+  if (!task.sessionID) throw new Error("Follow-up requires a linked OpenCode session")
+  return { ...task, column: "doing", finishedAt: undefined, lastError: undefined, updatedAt: now }
 }
 
 export function markTaskStartFailed(

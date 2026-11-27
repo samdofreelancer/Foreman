@@ -2,9 +2,16 @@ import { mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { join, posix, resolve, win32 } from "node:path"
 import { SqliteDatabase } from "../adapters/persistence/sqlite/database"
+import { SqliteTaskRepository } from "../adapters/persistence/sqlite/task-repository"
+import { SqliteProjectRepository } from "../adapters/persistence/sqlite/project-repository"
+import { SqliteActivityRepository } from "../adapters/persistence/sqlite/activity-repository"
 
 export type ForemanBootstrap = {
   databasePath: string
+  tasks?: SqliteTaskRepository
+  projects?: SqliteProjectRepository
+  activities?: SqliteActivityRepository
+  transaction<T>(operation: () => T): T
   health(): { status: "ready" | "degraded"; schemaVersion: number; message?: string }
   close(): void
 }
@@ -36,6 +43,13 @@ export function initializeForeman(options: { dataDirectory?: string } = {}): For
 
   return {
     databasePath,
+    tasks: database ? new SqliteTaskRepository(database) : undefined,
+    projects: database ? new SqliteProjectRepository(database) : undefined,
+    activities: database ? new SqliteActivityRepository(database) : undefined,
+    transaction: <T>(operation: () => T) => {
+      if (!database) throw new Error("Foreman database is unavailable")
+      return database.transaction(operation)
+    },
     health: () => database
       ? { status: "ready", schemaVersion: database.schemaVersion() }
       : { status: "degraded", schemaVersion: 0, message: failureMessage },

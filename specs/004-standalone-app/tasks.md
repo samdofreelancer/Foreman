@@ -165,47 +165,89 @@ mobile navigation, and horizontal overflow.
 
 Articles: I, III, IV, V, VI, VII, IX.
 
-- [ ] T035 [P] Port and adapt pure board grouping, ordering, filtering, search, and task
+- [x] T035 [P] Port and adapt pure board grouping, ordering, filtering, search, and task
   transition tests to the standalone domain model.
-- [ ] T036 Implement task/project/activity API use cases and validated same-origin routes.
-- [ ] T037 Build Board, four columns, task cards, project filter, search, and meaningful
+- [x] T036 Implement task/project/activity API use cases and validated same-origin routes.
+- [x] T037 Build Board, four columns, task cards, project filter, search, and meaningful
   empty/loading/error states in the standalone UI.
-- [ ] T038 Build task create/edit/detail surfaces; preserve project, agent/model, and
+- [x] T038 Build task create/edit/detail surfaces; preserve project, agent/model, and
   task intent fields without exposing runtime-only controls on unlinked tasks.
 - [ ] T039 Implement project discovery through OpenCode when connected plus local/manual
   project selection when disconnected.
-- [ ] T040 Implement Projects and Activity views backed only by Foreman-owned SQLite
+- [x] T040 Implement Projects and Activity views backed only by Foreman-owned SQLite
   records; ensure activity entries are safe and do not contain transcript content.
-- [ ] T041 Implement task delete confirmation and status transitions; `doing` remains
+- [x] T041 Implement task delete confirmation and status transitions; `doing` remains
   execution-controlled and moving to `ready` never starts a session.
-- [ ] T042 Add Playwright coverage for CRUD, filtering/search, multiple projects, task
+- [x] T042 Add Playwright coverage for CRUD, filtering/search, multiple projects, task
   detail, reload persistence, keyboard accessibility, and 390px/1440px layouts.
 
 **Independent Test**: create tasks across projects, filter/search, open details, reload,
 and verify all local task data remains available with OpenCode disconnected.
 
+**Implementation checkpoint (2026-11-27)**: T035-T038 and T040-T042 implemented and
+verified. The standalone API exposes task CRUD/detail, local project listing/creation/
+update, and recent/task activity through same-origin session+CSRF protected routes.
+Creating a task auto-registers its project when needed. The Board renders four persisted
+columns, project filter, title search, task cards, keyboard-openable detail, create/edit,
+delete confirmation, and status controls. Projects and Activity are SQLite-backed.
+Ready is a stored state only; it never starts an OpenCode session. Manual transitions into
+or out of Doing are rejected because that column is runtime-controlled. T039's local/manual
+project selection is implemented; live OpenCode project discovery is deferred until the
+runtime connection can be configured through the Phase 8 settings surface. Phase 5 is
+therefore functionally complete for disconnected task management, with connected project
+discovery remaining an explicit integration follow-up.
+
 ## Phase 6: User Story 3 — Explicit OpenCode Execution
 
 Articles: I, II, III, IV, V, VI, VII, VIII.
 
-- [ ] T043 [P] Write application-use-case tests for explicit start, double-submit,
+- [x] T043 [P] Write application-use-case tests for explicit start, double-submit,
   concurrent start, existing-session retry, follow-up, prompt failure, and disconnect.
-- [ ] T044 Implement StartTask use case: validate Ready state and healthy connection,
+- [x] T044 Implement StartTask use case: validate Ready state and healthy connection,
   claim task start atomically, create one session, persist its id before prompt send,
   then reconcile the resulting runtime state.
-- [ ] T045 Implement failure recovery when session creation succeeds but the initial
+- [x] T045 Implement failure recovery when session creation succeeds but the initial
   prompt fails; preserve the session id and offer resend without new session creation.
-- [ ] T046 Implement follow-up use case targeting only the task's linked session; retries
+- [x] T046 Implement follow-up use case targeting only the task's linked session; retries
   and follow-ups MUST NOT replace the session id.
-- [ ] T047 Implement event-to-domain mapping for execution started/succeeded/failed/
+- [x] T047 Implement event-to-domain mapping for execution started/succeeded/failed/
   interrupted, session idle, permission, form, and session deletion events.
-- [ ] T048 Implement task detail execution panel with live/stale/disconnected/failed/
+- [x] T048 Implement task detail execution panel with live/stale/disconnected/failed/
   unknown distinctions and a route to the exact linked OpenCode session where supported.
-- [ ] T049 Add Playwright and adapter integration tests for 20 repeated start attempts,
+- [x] T049 Add Playwright and adapter integration tests for 20 repeated start attempts,
   double-click, reload during run, event loss/reconnect, and prompt resend.
 
 **Independent Test**: explicitly start one Ready task, verify one linked session and
 initial prompt, disconnect/reconnect, then follow up in the same session.
+
+**Implementation checkpoint (2026-11-27)**: T043-T049 implemented. The standalone CLI
+now composes `TaskExecutionService` and `ForemanRuntimeController` with the Phase 3
+OpenCode 2.4.x gateway/supervisor. Settings provides the minimum managed/external
+connection controls needed for execution; full persisted connection settings and the
+independent health surface remain Phase 8. The browser talks only to Foreman APIs.
+
+Start is an explicit action on a Ready task. SQLite v2 adds `task_start_claims` and
+`initial_prompt_state`; an atomic reservation is acquired before calling OpenCode, then
+the session id is stored and the task enters Doing before the initial prompt is sent.
+Session ids remain unique/immutable. A 20-way concurrent start test proves only one
+session is created. A definitive 4xx session-creation rejection releases the reservation;
+an ambiguous transport outcome retains it and blocks retries. The task detail view offers
+a manual recovery action only after the user confirms they inspected OpenCode and no
+session exists. A successful session create followed by prompt failure retains the session
+and exposes Resend initial prompt against that same session. Follow-ups are queued into
+the linked session and never create or replace sessions; following up a Done task reopens
+it as Doing while the existing session resumes work.
+
+The runtime supervisor is now connected to task reconciliation/event mapping. Execution
+success moves the task to Done; failed/interrupted runs retain the linked session and
+surface an error; missing/deleted sessions remain linked but are marked for attention.
+Permission/form/idle events create safe activity metadata only—no prompt text, transcript,
+permission payload, or credentials are persisted. Task detail distinguishes unknown,
+failed, connected, stale, disconnected, and succeeded states, shows the exact session id,
+and links to the OpenCode 2.x session route when the runtime exposes a server endpoint.
+
+Full settings persistence, project auto-discovery, Inbox aggregation/response controls,
+and native Keychain/Secret Service storage remain outside this phase.
 
 ## Phase 7: User Story 4 — Inbox and Human Attention
 

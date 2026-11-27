@@ -143,4 +143,20 @@ describe("standalone server security boundary", () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it("serves assets written after startup so rebuilt hashed bundles load without a restart", async () => {
+    const root = await mkdtemp(join(tmpdir(), "foreman-static-late-"))
+    try {
+      await writeFile(join(root, "index.html"), "<!doctype html><title>Foreman shell</title>")
+      const server = await start({ staticRoot: root })
+
+      await writeFile(join(root, "assets-late.js"), "globalThis.foremanLate = true")
+      const asset = await fetch(`${server.url}/assets-late.js`)
+      expect(asset.status).toBe(200)
+      expect(asset.headers.get("content-type")).toContain("javascript")
+      expect(await asset.text()).toContain("foremanLate")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

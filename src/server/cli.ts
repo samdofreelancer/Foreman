@@ -5,6 +5,8 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { startForemanLoopback, type ForemanLoopbackServers, type ForemanServerOptions } from "./server"
 import { initializeForeman } from "./bootstrap"
+import { TaskExecutionService } from "../application/task-execution"
+import { ForemanRuntimeController } from "./runtime-controller"
 
 export type ForemanCliRuntime = Pick<ForemanLoopbackServers, "url"> & { databasePath: string; close(): Promise<void> }
 
@@ -33,11 +35,26 @@ export async function startForemanCli(options: ForemanCliOptions = {}): Promise<
   }
 
   const bootstrap = initializeForeman({ dataDirectory: options.dataDirectory })
+  let runtimeController: ForemanRuntimeController | undefined
+  const execution = bootstrap.tasks && bootstrap.activities
+    ? new TaskExecutionService({
+      tasks: bootstrap.tasks,
+      activities: bootstrap.activities,
+      transaction: bootstrap.transaction,
+      gateway: () => runtimeController?.activeGateway,
+    })
+    : undefined
+  if (bootstrap.tasks && execution) runtimeController = new ForemanRuntimeController(bootstrap.tasks, execution)
   let runtime: ForemanLoopbackServers
   try {
     runtime = await startForemanLoopback({
       port,
       logger: options.logger,
+      repositories: bootstrap.tasks && bootstrap.projects && bootstrap.activities
+        ? { tasks: bootstrap.tasks, projects: bootstrap.projects, activities: bootstrap.activities, transaction: bootstrap.transaction }
+        : undefined,
+      execution,
+      runtime: runtimeController,
       staticRoot: options.staticRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../dist/client"),
       health: () => {
         const database = bootstrap.health()

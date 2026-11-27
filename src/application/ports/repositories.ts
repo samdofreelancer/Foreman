@@ -9,7 +9,11 @@ export interface TaskRepository {
   update(task: Task): void
   delete(id: string): boolean
   /** Atomically links a previously unlinked task to one session. */
-  claimSession(taskId: string, sessionId: string, now: number): boolean
+  claimStart(taskId: string, claimToken: string, now: number): boolean
+  releaseStart(taskId: string, claimToken: string, error: string, now: number): boolean
+  clearStartClaim(taskId: string): boolean
+  claimSession(taskId: string, sessionId: string, now: number, claimToken: string): boolean
+  setInitialPromptState(taskId: string, state: "pending" | "sent" | "failed", error: string | undefined, now: number, clearError?: boolean): void
 }
 
 export interface ProjectRepository {

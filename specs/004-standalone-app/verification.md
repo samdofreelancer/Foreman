@@ -194,6 +194,60 @@ IPv6 loopback was available and passed in this Windows environment. The compiled
 smoke test confirmed HTTP 200 health and HTTP 403 for an attacker-controlled Host value.
 No OpenCode process, service, endpoint, credential, or database was used during Phase 2.
 
+## 2026-11-27 — Phase 6: Explicit OpenCode execution
+
+### Implementation
+
+- Added `TaskExecutionService` as the only application path for starting work, resending
+  the initial prompt, sending follow-ups, and reconciling execution events. The browser
+  never receives an OpenCode SDK client or calls the OpenCode endpoint directly.
+- Added SQLite migration v2 with `task_start_claims` and `initial_prompt_state`. A task
+  must be Ready and the runtime healthy before a start claim is acquired. The claim is
+  acquired atomically before the remote create-session request; the immutable session id
+  and Doing status are committed before the initial prompt is sent.
+- Added ambiguity-safe recovery. Definitive 4xx session-creation rejection releases the
+  claim. An uncertain transport outcome keeps the claim and blocks another create request.
+  The UI exposes a manual clear action only after the user explicitly confirms they
+  inspected OpenCode and no session was created. A linked session cannot be deleted.
+- Initial prompt failure preserves the session id and exposes a resend action that targets
+  that same session. Follow-ups use queued delivery and never create or replace sessions.
+  Initial-prompt state writes do not erase a concurrent execution failure event.
+- Added `ForemanRuntimeController` to compose `RuntimeConnection` and
+  `ConnectionSupervisor` inside the standalone CLI. Managed mode owns/stops only the child
+  Foreman starts; external mode only drops its client reference. Runtime credentials stay
+  server-side and external password input is held in process memory for this connection.
+- Added same-origin/CSRF protected `/api/runtime`, connect/disconnect, task start, prompt
+  resend, follow-up, and uncertain-start recovery endpoints. Task events map execution
+  lifecycle, idle, permission, form, and session deletion into safe activity/domain state;
+  prompt text, transcript, permission payloads, and credentials are not persisted.
+- Added minimum managed/external connection controls in Settings and an execution panel
+  in task detail. It distinguishes not-started/unknown/failed/succeeded and connected,
+  stale, or disconnected runtime states. Linked tasks expose their exact session id and
+  the OpenCode 2.x web session deep link when a runtime endpoint is available.
+
+### Verification
+
+| Check | Result | Notes |
+|---|---|---|
+| Full Vitest suite | Pass | 25 test files, **141/141 tests passed**. Includes 20 concurrent start requests, atomic SQLite reservation across connections, ambiguous create response, prompt resend, follow-up/reopen of Done task, event mapping, reconnect reconciliation, managed/external ownership, linked-task delete guard, and explicit start-claim recovery. |
+| Playwright E2E | Pass | **21 passed, 1 skipped** across desktop Chromium (1440px) and mobile Chromium (390px). Covers explicit Ready-task start, session deep link, reload with session retained, follow-up, and prompt resend without another session. The skip is the mobile-drawer-only test in desktop Chromium. |
+| TypeScript typecheck | Pass | `npm run typecheck`. |
+| Architecture checks | Pass | `npm run check:architecture`; 4/4 architecture boundary tests. |
+| Production build | Pass | `npm run build`; standalone client, Node server, and quarantined plugin reference bundle. |
+| Production preview smoke | Pass | Fresh isolated preview on `127.0.0.1:4324`: `/board`, `/api/health`, `/api/session`, `/api/runtime`, `/api/tasks`, `/api/projects`, and `/api/activity` all returned HTTP 200. SQLite reported ready, schema version 2; runtime correctly reported disconnected by default. Preview PID 22584 was retained. |
+| `git diff --check` | Pass | No whitespace errors; only expected Windows LF→CRLF warnings. |
+
+### Runtime boundary and remaining scope
+
+No prompt was sent to a live user runtime and no model/provider inference was triggered
+during this phase. Execution orchestration is covered with deterministic gateway fakes;
+the Phase 3 isolated OpenCode 2.4.2 smoke verified the real SDK's server health, project
+listing, session create/read, interrupt, and event stream without sending a prompt. To
+connect a real runtime, select a supported OpenCode 2.4.x executable or an existing
+2.4.x server; Foreman does not upgrade or replace the global CLI. Full persisted
+connection settings/health surface remain Phase 8, live project discovery remains T039,
+and Inbox attention aggregation remains Phase 7.
+
 ### Runtime matrix and package entrypoint re-check
 
 | Check | Node.js 22.23.5 | Node.js 24.15.0 |
@@ -330,3 +384,47 @@ Phase 4 delivers the application shell and database lifecycle, not task CRUD. Bo
 columns/cards, project discovery, task detail, and activity records are Phase 5. Connection
 settings are Phase 8; execution controls are Phase 6. The runtime remains disconnected by
 default and the existing Phase 2 development server is not replaced by this verification.
+
+## 2026-11-27 — Phase 5: Task-centric Board and Projects
+
+### Implementation
+
+- Wired the standalone server to the Foreman-owned SQLite task, project, and activity
+  repositories. Added same-origin, session+CSRF protected endpoints for task list/detail,
+  create/update/delete, project list/create/update, and recent activity.
+- Task creation validates title and absolute project directory, registers a project when
+  the directory is new, and records safe activity. Task update preserves immutable task
+  identity/session linkage. Delete requires an explicit UI confirmation and appends an
+  audit event before removing the task; multi-record writes run in SQLite transactions
+  and activity history remains append-only.
+- Replaced the Phase 4 placeholder Board with a persisted four-column Kanban board, task
+  cards, project filtering, title search, task counts, empty/loading/error states, and
+  responsive horizontal board scrolling on narrow viewports.
+- Added task create/edit/detail surfaces, including task intent, project, agent/model
+  fields, status, linked-session visibility, and task activity. Task cards are keyboard
+  operable; dialogs close with Escape. Runtime-only execution controls remain absent.
+- Added manual project registration and task-linked project listing while disconnected,
+  plus SQLite-backed Projects and Activity views.
+- Corrected the status invariant: Ready is only a persisted status and never triggers
+  execution. Manual transitions into or out of Doing are rejected; runtime adapters retain
+  ownership of that column. Live project discovery from OpenCode awaits the user-facing
+  runtime connection configuration planned for Phase 8.
+
+### Verification
+
+| Check | Result | Notes |
+|---|---|---|
+| Full Vitest suite | Pass | Re-run after SQLite transaction hardening: 23 test files, **121/121 tests passed**. |
+| Playwright E2E | Pass | Re-run after latest UI/backend changes: **17 passed, 1 skipped** across desktop Chromium (1440px) and mobile Chromium (390px). Covers task CRUD, detail, Ready transition, reload, search, multiple-project filtering, manual project registration, activity, and keyboard activation. |
+| TypeScript typecheck | Pass | `npm run typecheck` after the final transaction and UI changes. |
+| Architecture checks | Pass | `npm run check:architecture`; typecheck plus 4/4 architecture boundary tests. |
+| Production build | Pass | `npm run build`; standalone client, Node server, and transitional plugin-reference bundle. |
+| Production preview smoke | Pass | Existing Phase 5 preview on `127.0.0.1:4322`: `/board`, `/api/health`, `/api/session`, `/api/tasks`, `/api/projects`, and `/api/activity` all returned HTTP 200; SQLite reported ready, schema version 1. Existing preview process was retained. |
+| `git diff --check` | Pass | No whitespace errors; only expected Windows line-ending warnings. |
+
+### Scope boundary
+
+Phase 5 delivers the task manager and offline project workflow. Runtime-driven project
+discovery is not yet wired because connection settings are Phase 8; execution/start/follow-up
+remain Phase 6, Inbox attention aggregation remains Phase 7, and connection configuration
+remains Phase 8.

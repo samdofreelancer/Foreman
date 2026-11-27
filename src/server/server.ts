@@ -5,6 +5,14 @@ import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import type { AddressInfo } from "node:net"
 import { isAllowedHostHeader, isLoopbackBindHost, isSameOrigin, safeTokenEquals } from "./security"
+import { randomUUID } from "node:crypto"
+import { basename } from "node:path"
+import { createTask, updateTask, type TaskInput, type TaskPatch, type TaskColumn } from "../domain/task"
+import { createProject, updateProject } from "../domain/project"
+import { createActivityEvent } from "../domain/activity"
+import type { TaskRepository, ProjectRepository, ActivityRepository } from "../application/ports/repositories"
+import type { TaskExecutionService } from "../application/task-execution"
+import type { ForemanRuntimeController, RuntimeConnectInput } from "./runtime-controller"
 
 const SESSION_COOKIE = "foreman_session"
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
@@ -17,6 +25,9 @@ export type ForemanServerOptions = {
   logger?: FastifyServerOptions["logger"]
   staticRoot?: string
   health?: () => unknown
+  repositories?: { tasks: TaskRepository; projects: ProjectRepository; activities: ActivityRepository; transaction?: <T>(operation: () => T) => T }
+  execution?: TaskExecutionService
+  runtime?: ForemanRuntimeController
 }
 
 export type ForemanServer = {
@@ -103,6 +114,8 @@ function createFastify(options: ForemanServerOptions): FastifyInstance {
 
   app.get("/api/health", async () => options.health?.() ?? ({ status: "ok" }))
 
+  if (options.repositories) registerWorkspaceApi(app, options.repositories, options.execution, options.runtime)
+
   app.get("/api/session", async (request, reply) => {
     const now = Date.now()
     for (const [id, session] of sessions) {
@@ -128,7 +141,9 @@ function createFastify(options: ForemanServerOptions): FastifyInstance {
 
   if (options.staticRoot && existsSync(options.staticRoot)) {
     const root = resolve(options.staticRoot)
-    app.register(fastifyStatic, { root, prefix: "/", wildcard: false })
+    // wildcard: true resolves files from disk on every request, so a client rebuild that
+    // emits new content-hashed asset names is served without restarting the server.
+    app.register(fastifyStatic, { root, prefix: "/", wildcard: true, index: ["index.html"] })
   }
 
   app.setNotFoundHandler((request, reply) => {
@@ -140,9 +155,215 @@ function createFastify(options: ForemanServerOptions): FastifyInstance {
 
   app.addHook("onClose", async () => {
     sessions.clear()
+    await options.runtime?.close()
   })
 
   return app
+}
+
+function registerWorkspaceApi(
+  app: FastifyInstance,
+  repositories: NonNullable<ForemanServerOptions["repositories"]>,
+  execution?: TaskExecutionService,
+  runtime?: ForemanRuntimeController,
+) {
+  const { tasks, projects, activities } = repositories
+  const transaction = repositories.transaction ?? (<T>(operation: () => T) => operation())
+  const record = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+  const appendActivity = (type: string, summary: string, taskId?: string, projectId?: string) => {
+    activities.append(createActivityEvent({ type, summary, taskId, projectId }, Date.now(), randomUUID()))
+  }
+  const fail = (reply: import("fastify").FastifyReply, status: number, code: string, message: string) =>
+    reply.code(status).send({ error: { code, message } })
+
+  app.get("/api/runtime", async () => ({ runtime: runtime?.status ?? { status: "disconnected" } }))
+  app.post("/api/runtime/connect", async (request, reply) => {
+    if (!runtime) return fail(reply, 503, "RUNTIME_UNAVAILABLE", "Runtime connection is not configured in this Foreman process.")
+    if (!record(request.body)) return fail(reply, 400, "INVALID_RUNTIME_CONFIG", "Runtime connection settings are required.")
+    const body = request.body
+    let input: RuntimeConnectInput
+    if (body.mode === "managed") {
+      if (body.executable !== undefined && (typeof body.executable !== "string" || body.executable.length > 4_096)) return fail(reply, 400, "INVALID_RUNTIME_CONFIG", "OpenCode executable path is invalid.")
+      input = { mode: "managed", executable: typeof body.executable === "string" ? body.executable : undefined }
+    } else if (body.mode === "external") {
+      if (typeof body.endpoint !== "string" || body.endpoint.length > 2_048
+        || (body.username !== undefined && (typeof body.username !== "string" || body.username.length > 256))
+        || (body.password !== undefined && (typeof body.password !== "string" || body.password.length > 4_096))) {
+        return fail(reply, 400, "INVALID_RUNTIME_CONFIG", "A valid OpenCode endpoint and optional credentials are required.")
+      }
+      input = { mode: "external", endpoint: body.endpoint, username: body.username as string | undefined, password: body.password as string | undefined }
+    } else return fail(reply, 400, "INVALID_RUNTIME_CONFIG", "Runtime mode must be managed or external.")
+    try { return { runtime: await runtime.connect(input) } }
+    catch (error) { return fail(reply, 400, "RUNTIME_CONNECT_FAILED", error instanceof Error ? error.message.slice(0, 240) : "OpenCode connection failed.") }
+  })
+  app.post("/api/runtime/disconnect", async (_request, reply) => {
+    if (!runtime) return fail(reply, 503, "RUNTIME_UNAVAILABLE", "Runtime connection is not configured.")
+    await runtime.disconnect()
+    return reply.code(200).send({ runtime: runtime.status })
+  })
+
+  if (execution) {
+    app.post<{ Params: { id: string } }>("/api/tasks/:id/start", async (request, reply) => {
+      const result = await execution.start(request.params.id)
+      if (result.kind === "rejected") return fail(reply, 409, "TASK_START_REJECTED", result.reason)
+      return reply.code(200).send({ result })
+    })
+    app.post<{ Params: { id: string } }>("/api/tasks/:id/resend", async (request, reply) => {
+      const result = await execution.resendInitialPrompt(request.params.id)
+      if (result.kind === "rejected") return fail(reply, 409, "PROMPT_RESEND_REJECTED", result.reason)
+      return reply.code(200).send({ result })
+    })
+    app.post<{ Params: { id: string } }>("/api/tasks/:id/follow-up", async (request, reply) => {
+      if (!record(request.body) || typeof request.body.text !== "string") return fail(reply, 400, "INVALID_FOLLOW_UP", "Follow-up text is required.")
+      const result = await execution.followUp(request.params.id, request.body.text)
+      if (result.kind === "rejected") return fail(reply, 409, "FOLLOW_UP_REJECTED", result.reason)
+      return reply.code(200).send({ result })
+    })
+  }
+
+  app.post<{ Params: { id: string } }>("/api/tasks/:id/recover-start", async (request, reply) => {
+    const task = tasks.getById(request.params.id)
+    if (!task) return fail(reply, 404, "TASK_NOT_FOUND", "Task not found.")
+    if (!task.startPending || task.sessionID) return fail(reply, 409, "START_RECOVERY_NOT_AVAILABLE", "This task has no unresolved session-creation claim.")
+    if (!record(request.body) || request.body.confirmedNoSession !== true) {
+      return fail(reply, 400, "START_RECOVERY_CONFIRMATION_REQUIRED", "Confirm that you inspected OpenCode and no session was created.")
+    }
+    const cleared = transaction(() => {
+      if (!tasks.clearStartClaim(task.id)) return false
+      appendActivity("task.execution.start-claim-cleared", `Cleared an uncertain start claim after user verification: ${task.title}`, task.id)
+      return true
+    })
+    if (!cleared) return fail(reply, 409, "START_RECOVERY_NOT_AVAILABLE", "The start claim changed before recovery could be applied.")
+    return { task: tasks.getById(task.id) }
+  })
+
+  app.get("/api/tasks", async () => ({ tasks: tasks.list() }))
+  app.get<{ Params: { id: string } }>("/api/tasks/:id", async (request, reply) => {
+    const task = tasks.getById(request.params.id)
+    if (!task) return fail(reply, 404, "TASK_NOT_FOUND", "Task not found.")
+    return { task, activity: activities.listForTask(task.id) }
+  })
+  app.post("/api/tasks", async (request, reply) => {
+    if (!record(request.body)) return fail(reply, 400, "INVALID_TASK", "A task object is required.")
+    const body = request.body as Record<string, unknown>
+    if (typeof body.title !== "string" || typeof body.projectDirectory !== "string") {
+      return fail(reply, 400, "INVALID_TASK", "Task title and absolute project directory are required.")
+    }
+    const input: TaskInput = {
+      title: body.title,
+      projectDirectory: body.projectDirectory,
+      ...(typeof body.description === "string" ? { description: body.description } : {}),
+      ...(typeof body.projectName === "string" ? { projectName: body.projectName } : {}),
+      ...(typeof body.agent === "string" ? { agent: body.agent } : {}),
+      ...(record(body.model) && typeof body.model.providerID === "string" && typeof body.model.id === "string"
+        ? { model: { providerID: body.model.providerID, id: body.model.id } } : {}),
+    }
+    try {
+      const task = transaction(() => {
+        const created = createTask(input, Date.now(), randomUUID())
+        let project = projects.getByDirectory(created.projectDirectory)
+        if (!project) {
+          project = createProject({ name: created.projectName || basename(created.projectDirectory.replace(/[\\/]+$/, "")) || created.projectDirectory, directory: created.projectDirectory }, Date.now(), randomUUID())
+          projects.create(project)
+        }
+        tasks.create(created)
+        appendActivity("task.created", `Created task: ${created.title}`, created.id, project.id)
+        return created
+      })
+      return reply.code(201).send({ task })
+    } catch (error) {
+      return fail(reply, 400, "INVALID_TASK", error instanceof Error ? error.message : "Task could not be created.")
+    }
+  })
+  app.patch<{ Params: { id: string } }>("/api/tasks/:id", async (request, reply) => {
+    const existing = tasks.getById(request.params.id)
+    if (!existing) return fail(reply, 404, "TASK_NOT_FOUND", "Task not found.")
+    if (!record(request.body)) return fail(reply, 400, "INVALID_TASK", "A task update object is required.")
+    const body = request.body
+    const patch: TaskPatch = {
+      ...(typeof body.title === "string" ? { title: body.title } : {}),
+      ...(typeof body.description === "string" || body.description === null ? { description: body.description ?? undefined } : {}),
+      ...(typeof body.projectDirectory === "string" ? { projectDirectory: body.projectDirectory } : {}),
+      ...(typeof body.projectName === "string" || body.projectName === null ? { projectName: body.projectName ?? undefined } : {}),
+      ...(typeof body.agent === "string" ? { agent: body.agent } : {}),
+      ...(body.column === "todo" || body.column === "ready" || body.column === "doing" || body.column === "done" ? { column: body.column as TaskColumn } : {}),
+      ...(record(body.model) && typeof body.model.providerID === "string" && typeof body.model.id === "string"
+        ? { model: { providerID: body.model.providerID, id: body.model.id } } : {}),
+    }
+    try {
+      const updated = transaction(() => {
+        const next = updateTask(existing, patch, Date.now())
+        if (next.projectDirectory !== existing.projectDirectory && !projects.getByDirectory(next.projectDirectory)) {
+          const project = createProject({ name: next.projectName || basename(next.projectDirectory), directory: next.projectDirectory }, Date.now(), randomUUID())
+          projects.create(project)
+        }
+        tasks.update(next)
+        appendActivity("task.updated", `Updated task: ${next.title}`, next.id)
+        return next
+      })
+      return { task: updated }
+    } catch (error) {
+      return fail(reply, 400, "INVALID_TASK_UPDATE", error instanceof Error ? error.message : "Task could not be updated.")
+    }
+  })
+  app.delete<{ Params: { id: string } }>("/api/tasks/:id", async (request, reply) => {
+    const task = tasks.getById(request.params.id)
+    if (!task) return fail(reply, 404, "TASK_NOT_FOUND", "Task not found.")
+    if (task.sessionID || task.startPending) return fail(reply, 409, "TASK_EXECUTION_LINKED", "A task with an OpenCode session or pending start claim cannot be deleted.")
+    transaction(() => {
+      appendActivity("task.deleted", `Deleted task: ${task.title}`, task.id)
+      tasks.delete(task.id)
+    })
+    return reply.code(204).send()
+  })
+
+  app.get("/api/projects", async () => {
+    const known = new Map(projects.list().map((project) => [project.directory.toLocaleLowerCase(), project]))
+    for (const task of tasks.list()) {
+      const key = task.projectDirectory.toLocaleLowerCase()
+      if (!known.has(key)) known.set(key, { id: `local:${key}`, name: task.projectName || basename(task.projectDirectory), directory: task.projectDirectory, createdAt: task.createdAt, updatedAt: task.updatedAt })
+    }
+    return { projects: [...known.values()].sort((a, b) => a.name.localeCompare(b.name)) }
+  })
+  app.post("/api/projects", async (request, reply) => {
+    if (!record(request.body) || typeof request.body.name !== "string" || typeof request.body.directory !== "string") {
+      return fail(reply, 400, "INVALID_PROJECT", "Project name and absolute directory are required.")
+    }
+    const body = request.body
+    try {
+      const project = transaction(() => {
+        const created = createProject({ name: body.name as string, directory: body.directory as string }, Date.now(), randomUUID())
+        projects.create(created)
+        appendActivity("project.created", `Added project: ${created.name}`, undefined, created.id)
+        return created
+      })
+      return reply.code(201).send({ project })
+    } catch (error) {
+      return fail(reply, 400, "INVALID_PROJECT", error instanceof Error ? error.message : "Project could not be created.")
+    }
+  })
+  app.patch<{ Params: { id: string } }>("/api/projects/:id", async (request, reply) => {
+    const project = projects.getById(request.params.id)
+    if (!project) return fail(reply, 404, "PROJECT_NOT_FOUND", "Project not found.")
+    if (!record(request.body)) return fail(reply, 400, "INVALID_PROJECT", "A project update is required.")
+    const body = request.body as Record<string, unknown>
+    try {
+      const updated = transaction(() => {
+        const next = updateProject(project, {
+          ...(typeof body.name === "string" ? { name: body.name } : {}),
+          ...(typeof body.directory === "string" ? { directory: body.directory } : {}),
+        }, Date.now())
+        projects.update(next)
+        appendActivity("project.updated", `Updated project: ${next.name}`, undefined, next.id)
+        return next
+      })
+      return { project: updated }
+    } catch (error) {
+      return fail(reply, 400, "INVALID_PROJECT_UPDATE", error instanceof Error ? error.message : "Project could not be updated.")
+    }
+  })
+  app.get("/api/activity", async () => ({ activities: activities.listRecent(100) }))
 }
 
 function readCookie(header: string | undefined, name: string): string | undefined {

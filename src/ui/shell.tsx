@@ -1,15 +1,17 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { normalizeRoute, routeTitle, routes, type AppRoute } from "./routes"
+import { Workspace } from "./workspace"
 
 type StartupState = "loading" | "ready" | "error"
 
-async function establishSession(): Promise<void> {
+async function establishSession(): Promise<string> {
   const response = await fetch("/api/session", { credentials: "same-origin", headers: { accept: "application/json" } })
   if (!response.ok) throw new Error("Foreman could not establish a secure local session.")
   const payload: unknown = await response.json()
   if (!payload || typeof payload !== "object" || !("csrfToken" in payload) || typeof payload.csrfToken !== "string") {
     throw new Error("Foreman received an invalid session response. Refresh the application to try again.")
   }
+  return payload.csrfToken
 }
 
 function Icon(props: { name: string; size?: number }) {
@@ -36,6 +38,8 @@ export function App() {
   const [startupError, setStartupError] = createSignal("")
   const [drawerOpen, setDrawerOpen] = createSignal(false)
   const [serverOnline, setServerOnline] = createSignal(true)
+  const [csrfToken, setCsrfToken] = createSignal("")
+  const [runtimeState, setRuntimeState] = createSignal<{ status: string; version?: string; mode?: string }>({ status: "disconnected" })
 
   const navigate = (path: AppRoute) => {
     if (window.location.pathname !== path) window.history.pushState({}, "", path)
@@ -59,7 +63,7 @@ export function App() {
         const message = database && "message" in database && typeof database.message === "string" ? database.message : "The local database is unavailable."
         throw new Error(message)
       }
-      await establishSession()
+      setCsrfToken(await establishSession())
       setServerOnline(true)
       setStartup("ready")
     } catch (error) {
@@ -115,8 +119,8 @@ export function App() {
         </nav>
         <div class="sidebar-spacer" />
         <div class="runtime-card">
-          <div class="runtime-card-top"><span class="status-dot status-muted"/><span>OpenCode</span><span class="runtime-state">Disconnected</span></div>
-          <p>Connect a runtime to start executing tasks.</p>
+          <div class="runtime-card-top"><span class={`status-dot ${runtimeState().status === "connected" ? "status-online" : "status-muted"}`}/><span>OpenCode</span><span class="runtime-state">{runtimeState().status === "connected" ? runtimeState().version ?? "Connected" : runtimeState().status}</span></div>
+          <p>{runtimeState().status === "connected" ? `${runtimeState().mode ?? "Runtime"} mode is ready for explicit task execution.` : "Connect a runtime to start executing tasks."}</p>
           <button class="runtime-link" onClick={() => navigate("/settings")}>Connection settings <Icon name="arrow" size={14}/></button>
         </div>
         <a classList={{ "nav-link": true, "settings-link": true, active: route() === "/settings" }} href="/settings" onClick={(event) => { event.preventDefault(); navigate("/settings") }}><Icon name="settings"/><span>Settings</span></a>
@@ -130,23 +134,7 @@ export function App() {
           <div class="topbar-actions"><span class="local-indicator"><span class="status-dot status-online"/>Local app running</span><span class="topbar-divider"/><button class="help-button" aria-label="Application version">v0.1.0</button></div>
         </header>
         <main class="page-content" id="main-content" tabindex="-1">
-          <Show when={route() === "/board"}>
-            <div class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Board</h1><p class="page-description">A clear view of what you're working on.</p></div><div class="heading-actions"><span class="runtime-pill"><span class="status-dot status-muted"/>OpenCode disconnected</span></div></div>
-            <section class="welcome-panel">
-              <div class="welcome-copy"><span class="welcome-kicker">YOUR CONTROL PLANE</span><h2>Make progress visible.<br/><span>Keep the work moving.</span></h2><p>Foreman brings your tasks and OpenCode sessions into one focused workspace. Your local app is ready; task management is the next milestone.</p><button class="button button-primary" onClick={() => navigate("/projects")}>Explore workspace <Icon name="arrow" size={16}/></button></div>
-              <div class="welcome-visual" aria-hidden="true"><div class="visual-orbit orbit-one"/><div class="visual-orbit orbit-two"/><div class="visual-core"><span>F</span></div><div class="visual-node node-one"><i/><b>Plan</b></div><div class="visual-node node-two"><i/><b>Build</b></div><div class="visual-node node-three"><i/><b>Review</b></div></div>
-            </section>
-            <div class="section-heading"><div><h2>Workspace overview</h2><p>Everything starts with a task.</p></div><span class="section-meta">PHASE 4 · FOUNDATION</span></div>
-            <div class="overview-grid">
-              <article class="overview-card"><div class="overview-card-head"><span class="metric-icon metric-green"><Icon name="board"/></span><span class="card-state">Coming next</span></div><strong class="metric-value">—</strong><h3>Tasks</h3><p>Your work, organized into a focused four-column board.</p></article>
-              <article class="overview-card"><div class="overview-card-head"><span class="metric-icon metric-blue"><Icon name="projects"/></span><span class="card-state">Coming next</span></div><strong class="metric-value">—</strong><h3>Projects</h3><p>Keep work grouped by local project and repository.</p></article>
-              <article class="overview-card"><div class="overview-card-head"><span class="metric-icon metric-amber"><Icon name="inbox"/></span><span class="card-state">Runtime offline</span></div><strong class="metric-value">0</strong><h3>Needs attention</h3><p>Permissions, questions, and issues will appear here.</p></article>
-            </div>
-          </Show>
-          <Show when={route() !== "/board"}>
-            <div class="page-heading"><div><p class="eyebrow">WORKSPACE</p><h1>{activeTitle()}</h1><p class="page-description">{routes.find((item) => item.path === route())?.description ?? "Configure how Foreman works on this machine."}</p></div></div>
-            <section class="placeholder-panel"><div class="placeholder-icon"><Icon name={route() === "/settings" ? "settings" : routes.find((item) => item.path === route())?.icon ?? "board"} size={23}/></div><p class="eyebrow">PHASE {route() === "/settings" ? "8" : "5"}</p><h2>{route() === "/settings" ? "Connection settings are next." : `${activeTitle()} is taking shape.`}</h2><p>{route() === "/settings" ? "Managed and external OpenCode connection controls will arrive in the connection phase." : "This view will be connected to your local Foreman data in the task management phase."}</p><button class="text-button" onClick={() => navigate("/board")}>Back to Board <Icon name="arrow" size={15}/></button></section>
-          </Show>
+          <Workspace route={route()} csrfToken={csrfToken()} onNavigate={navigate} onRuntimeChange={setRuntimeState} />
           <footer class="page-footer"><span><span class="status-dot status-online"/> Foreman is running locally</span><span>Your data stays on this machine</span></footer>
         </main>
       </div>

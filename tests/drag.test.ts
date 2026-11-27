@@ -3,10 +3,11 @@ import { readFileSync } from "node:fs"
 import { resolveDrop } from "../src/domain/drag"
 
 describe("resolveDrop", () => {
-  it("starts a task dropped on Ready", () => {
+  it("moves a task to Ready without starting execution", () => {
     expect(resolveDrop({ taskID: "task-1", from: "todo" }, "ready")).toEqual({
-      kind: "start",
+      kind: "move",
       taskID: "task-1",
+      to: "ready",
     })
   })
 
@@ -39,12 +40,12 @@ describe("resolveDrop", () => {
     expect(source).toContain("dialogs.confirm")
   })
 
-  it("moves a Todo task to stored Ready before starting it", () => {
+  it("does not start execution when moving a task to Ready", () => {
     const source = readFileSync(
       new URL("../src/gui/board/Board.tsx", import.meta.url),
       "utf8",
     )
-    expect(source).toContain('draft[index].column = "ready"')
-    expect(source).toContain("startTask")
+    expect(source).toContain('resolution.kind !== "move"')
+    expect(source).not.toContain("startTask(")
   })
 })

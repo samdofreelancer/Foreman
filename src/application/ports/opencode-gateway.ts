@@ -9,7 +9,7 @@ export type RuntimeCapabilities = { sessions: true; projects: true; events: true
 export interface OpenCodeGateway {
   health(): Promise<{ connected: boolean; version?: string; reason?: string; capabilities?: RuntimeCapabilities }>
   listProjects(): Promise<RuntimeProject[]>
-  createSession(input: { directory: string; title: string }): Promise<RuntimeSession>
+  createSession(input: { directory: string; title: string; agent?: string; model?: { providerID: string; id: string } }): Promise<RuntimeSession>
   sendPrompt(input: { sessionId: string; text: string }): Promise<void>
   sendFollowUp(input: { sessionId: string; text: string }): Promise<void>
   interrupt(sessionId: string): Promise<void>

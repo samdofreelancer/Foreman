@@ -40,7 +40,7 @@ describe("SQLite persistence", () => {
     tasks.create(task)
     activities.append(activity)
 
-    expect(db.schemaVersion()).toBe(1)
+    expect(db.schemaVersion()).toBe(2)
     expect(projects.getById(project.id)).toEqual(project)
     expect(tasks.getById(task.id)).toEqual(task)
     expect(activities.listForTask(task.id)).toEqual([activity])
@@ -74,22 +74,24 @@ describe("SQLite persistence", () => {
   it("enforces a unique session id across tasks and immutable task session links", async () => {
     const db = database()
     const tasks = new SqliteTaskRepository(db)
-    const first = createTask({ title: "One", projectDirectory: "/work/a" }, 1, "task-1")
-    const second = createTask({ title: "Two", projectDirectory: "/work/b" }, 1, "task-2")
+    const first = createTask({ title: "One", projectDirectory: "/work/a", column: "ready" }, 1, "task-1")
+    const second = createTask({ title: "Two", projectDirectory: "/work/b", column: "ready" }, 1, "task-2")
     tasks.create(first)
     tasks.create(second)
 
     const secondConnection = new SqliteDatabase(db.path)
     databases.push(secondConnection)
     const secondConnectionTasks = new SqliteTaskRepository(secondConnection)
+    expect(tasks.claimStart(first.id, "claim-a", 2)).toBe(true)
+    expect(secondConnectionTasks.claimStart(second.id, "claim-b", 2)).toBe(true)
     const claims = await Promise.all([
-      Promise.resolve().then(() => tasks.claimSession(first.id, "ses-1", 2)),
-      Promise.resolve().then(() => secondConnectionTasks.claimSession(second.id, "ses-1", 2)),
+      Promise.resolve().then(() => tasks.claimSession(first.id, "ses-1", 3, "claim-a")),
+      Promise.resolve().then(() => secondConnectionTasks.claimSession(second.id, "ses-1", 3, "claim-b")),
     ])
     expect(claims.filter(Boolean)).toHaveLength(1)
     const winner = claims[0] ? first : second
     const loser = claims[0] ? second : first
-    expect(tasks.claimSession(winner.id, "ses-2", 3)).toBe(false)
+    expect(tasks.claimSession(winner.id, "ses-2", 4, "claim-retry")).toBe(false)
     expect(tasks.getById(winner.id)?.sessionID).toBe("ses-1")
     expect(tasks.getById(loser.id)?.sessionID).toBeUndefined()
     expect(() => db.connection.prepare("UPDATE tasks SET session_id = ? WHERE id = ?").run("ses-replacement", winner.id))
@@ -97,6 +99,38 @@ describe("SQLite persistence", () => {
     expect(tasks.getById(first.id)?.sessionID).toBe("ses-1")
     expect(tasks.getById(second.id)?.sessionID).toBeUndefined()
     db.close()
+  })
+
+  it("atomically reserves a Ready task before creating a session and persists the initial-prompt state", () => {
+    const db = database()
+    const tasks = new SqliteTaskRepository(db)
+    const task = createTask({ title: "Reserved", projectDirectory: "/work/reserved", column: "ready" }, 1, "task-reserved")
+    tasks.create(task)
+    const secondConnection = new SqliteDatabase(db.path)
+    databases.push(secondConnection)
+    const otherTasks = new SqliteTaskRepository(secondConnection)
+
+    expect(tasks.claimStart(task.id, "claim-a", 2)).toBe(true)
+    expect(otherTasks.claimStart(task.id, "claim-b", 3)).toBe(false)
+    expect(otherTasks.getById(task.id)?.startPending).toBe(true)
+    expect(tasks.claimSession(task.id, "ses-reserved", 4, "claim-a")).toBe(true)
+    expect(otherTasks.getById(task.id)).toMatchObject({ column: "doing", sessionID: "ses-reserved", initialPromptState: "pending" })
+    expect(otherTasks.getById(task.id)?.startPending).toBeUndefined()
+    tasks.setInitialPromptState(task.id, "failed", "Prompt rejected", 5)
+    expect(tasks.getById(task.id)).toMatchObject({ initialPromptState: "failed", lastError: "Prompt rejected" })
+    expect(tasks.claimStart(task.id, "claim-c", 6)).toBe(false)
+  })
+
+  it("releases a failed pre-session claim without linking a session", () => {
+    const db = database()
+    const tasks = new SqliteTaskRepository(db)
+    const task = createTask({ title: "Retryable", projectDirectory: "/work/retryable", column: "ready" }, 1, "task-retry")
+    tasks.create(task)
+    expect(tasks.claimStart(task.id, "claim-a", 2)).toBe(true)
+    expect(tasks.releaseStart(task.id, "claim-a", "Server unavailable", 3)).toBe(true)
+    expect(tasks.getById(task.id)).toMatchObject({ column: "ready", lastError: "Server unavailable" })
+    expect(tasks.getById(task.id)?.startPending).toBeUndefined()
+    expect(tasks.claimStart(task.id, "claim-b", 4)).toBe(true)
   })
 
   it("rolls back all writes when a transaction fails", () => {
@@ -149,11 +183,11 @@ describe("SQLite persistence", () => {
   it("opens a migrated database in read-only mode without changing its schema", () => {
     const db = database()
     const path = db.path
-    expect(db.schemaVersion()).toBe(1)
+    expect(db.schemaVersion()).toBe(2)
     db.close()
     const readOnly = new SqliteDatabase(path, { readonly: true })
     databases.push(readOnly)
-    expect(readOnly.health()).toEqual({ status: "ready", schemaVersion: 1 })
+    expect(readOnly.health()).toEqual({ status: "ready", schemaVersion: 2 })
     expect(() => readOnly.transaction(() => 1)).toThrow()
     readOnly.close()
   })

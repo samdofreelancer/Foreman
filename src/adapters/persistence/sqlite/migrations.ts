@@ -64,4 +64,19 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    version: 2,
+    name: "task-execution-claims-and-prompt-state",
+    up(database) {
+      database.exec(`
+        ALTER TABLE tasks ADD COLUMN initial_prompt_state TEXT
+          CHECK(initial_prompt_state IS NULL OR initial_prompt_state IN ('pending', 'sent', 'failed'));
+        CREATE TABLE task_start_claims (
+          task_id TEXT PRIMARY KEY NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          claim_token TEXT NOT NULL UNIQUE,
+          claimed_at INTEGER NOT NULL CHECK(claimed_at >= 0)
+        );
+      `)
+    },
+  },
 ]
