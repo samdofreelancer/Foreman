@@ -16,6 +16,7 @@ export type ForemanServerOptions = {
   port?: number
   logger?: FastifyServerOptions["logger"]
   staticRoot?: string
+  health?: () => unknown
 }
 
 export type ForemanServer = {
@@ -100,7 +101,7 @@ function createFastify(options: ForemanServerOptions): FastifyInstance {
     })
   })
 
-  app.get("/api/health", async () => ({ status: "ok" }))
+  app.get("/api/health", async () => options.health?.() ?? ({ status: "ok" }))
 
   app.get("/api/session", async (request, reply) => {
     const now = Date.now()

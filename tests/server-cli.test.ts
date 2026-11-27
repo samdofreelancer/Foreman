@@ -1,22 +1,33 @@
 import { afterEach, describe, expect, it } from "vitest"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { startForemanCli, parseForemanPort, type ForemanCliRuntime } from "../src/server/cli"
 import { startForemanLoopback } from "../src/server/server"
 
 const runtimes: ForemanCliRuntime[] = []
+const directories: string[] = []
 
 afterEach(async () => {
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.close()))
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
+
+function temporaryDataDirectory() {
+  const directory = mkdtempSync(join(tmpdir(), "foreman-cli-test-"))
+  directories.push(directory)
+  return directory
+}
 
 describe("standalone CLI runtime", () => {
   it("starts the local application without requiring an OpenCode runtime", async () => {
-    const runtime = await startForemanCli({ port: 0, openBrowser: false })
+    const runtime = await startForemanCli({ port: 0, openBrowser: false, dataDirectory: temporaryDataDirectory() })
     runtimes.push(runtime)
 
     expect(new URL(runtime.url).hostname).toBe("127.0.0.1")
     const response = await fetch(`${runtime.url}/api/health`)
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ status: "ok" })
+    expect(await response.json()).toMatchObject({ status: "ok", database: { status: "ready", schemaVersion: 1 } })
   })
 
   it("validates configured ports instead of silently coercing invalid values", () => {
@@ -28,7 +39,7 @@ describe("standalone CLI runtime", () => {
   })
 
   it("gracefully closes its loopback listeners", async () => {
-    const runtime = await startForemanCli({ port: 0, openBrowser: false, logger: false })
+    const runtime = await startForemanCli({ port: 0, openBrowser: false, logger: false, dataDirectory: temporaryDataDirectory() })
     await runtime.close()
     await expect(fetch(`${runtime.url}/api/health`)).rejects.toThrow()
   })

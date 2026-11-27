@@ -286,3 +286,47 @@ Keychain and Linux Secret Service adapters remain platform follow-ups; those pla
 currently use the process-memory fallback. The application server/UI has not yet wired
 runtime settings into this adapter; the server integration and user-facing connection
 settings belong to later application/UI phases.
+
+## 2026-11-27 — Phase 4: Standalone UI and application bootstrap
+
+### Implementation
+
+- Added a SolidJS SPA under `src/ui/` with a route model for Board, Projects, Inbox,
+  Activity, and Settings. Board is the default route; direct route loads and refreshes
+  are handled by the server's SPA fallback.
+- Added a responsive application shell with desktop workspace sidebar, mobile navigation
+  drawer/backdrop, accessible labels and focus treatment, local service status, and a
+  visibly disconnected OpenCode state. Placeholder views identify later delivery phases
+  rather than implying unfinished functions are live.
+- Added first-run welcome, loading, retryable service failure, and database-degraded
+  recovery states with live/alert announcements. The UI reads only same-origin Foreman
+  health/session endpoints and never receives OpenCode credentials or calls its endpoint.
+- Split Vite configurations: `vite.config.ts` builds the standalone client to
+  `dist/client`; `vite.plugin.config.ts` builds the quarantined legacy plugin reference.
+  `npm run dev` builds the client before starting the local secured CLI.
+- Added `src/server/bootstrap.ts` to initialize the Foreman-owned SQLite database under
+  the OS application-data directory, with `FOREMAN_DATA_DIR` override. `/api/health`
+  reports database readiness/schema version. If startup detects an unavailable/corrupt
+  database, the HTTP server still serves the recovery screen and does not delete the
+  original file. CLI shutdown closes both listeners and SQLite.
+- Added route/bootstrap unit tests and Playwright desktop/mobile browser tests.
+
+### Verification
+
+| Check | Result | Notes |
+|---|---|---|
+| Full Vitest suite | Pass | 22 test files, **115/115 tests passed**. |
+| Playwright E2E | Pass | **11 passed, 1 skipped** across desktop Chromium and mobile Chromium. The skip is the mobile-drawer-only test in desktop Chromium. |
+| TypeScript typecheck | Pass | `npm run typecheck`. |
+| Architecture checks | Pass | `npm run check:architecture`; 4/4 boundary tests. |
+| Production build | Pass | Standalone client, Node server, and quarantined plugin reference bundle. |
+| Production CLI smoke | Pass | Compiled CLI served `/board` (200), `/api/health` (database ready, schema 1), and `/api/session` (200) on an isolated port/data directory. |
+| Responsive overflow | Pass | Playwright checks desktop 1440px and mobile 390px viewports. |
+| `git diff --check` | Pass | No whitespace errors; expected Windows line-ending warnings only. |
+
+### Scope boundary
+
+Phase 4 delivers the application shell and database lifecycle, not task CRUD. Board task
+columns/cards, project discovery, task detail, and activity records are Phase 5. Connection
+settings are Phase 8; execution controls are Phase 6. The runtime remains disconnected by
+default and the existing Phase 2 development server is not replaced by this verification.

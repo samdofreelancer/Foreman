@@ -138,17 +138,28 @@ pending Keychain/Secret Service adapters.
 
 Articles: Product Identity, IV, V, VII, X.
 
-- [ ] T031 [P] Build the SolidJS application entry, router, design tokens, responsive
+- [x] T031 [P] Build the SolidJS application entry, router, design tokens, responsive
   application shell, and navigation layout under `src/ui/`.
-- [ ] T032 [P] Build first-run, loading, database-error, and disconnected application
+- [x] T032 [P] Build first-run, loading, database-error, and disconnected application
   states with accessible status announcements.
-- [ ] T033 Wire server bootstrap, database initialization, and UI startup into a single
+- [x] T033 Wire server bootstrap, database initialization, and UI startup into a single
   local application lifecycle with graceful shutdown.
-- [ ] T034 Add Playwright tests for direct launch, refresh, browser restart, no OpenCode
+- [x] T034 Add Playwright tests for direct launch, refresh, browser restart, no OpenCode
   Desktop dependency, and narrow viewport navigation.
 
 **Independent Test**: launch Foreman from its own command, open the Board route, refresh,
 and verify the shell works while OpenCode is not running.
+
+**Checkpoint (2026-11-27)**: T031-T034 implemented. SolidJS standalone client builds to
+`dist/client`, with a dedicated Vite config and the old plugin-reference build moved to
+`vite.plugin.config.ts`. The shell includes Board, Projects, Inbox, Activity and Settings
+navigation, desktop sidebar, mobile drawer, local-service status, explicit OpenCode
+disconnected state, loading/retry/database-degraded states, and responsive empty-state
+surfaces. The CLI initializes Foreman's own SQLite database in the OS application-data
+directory (or `FOREMAN_DATA_DIR`), reports readiness through `/api/health`, serves client
+assets, and closes SQLite with its HTTP listeners. Playwright covers direct launch,
+refresh/deep links, browser-context restart, offline runtime, database recovery UI,
+mobile navigation, and horizontal overflow.
 
 ## Phase 5: User Story 2 — Task-Centric Board and Projects
 

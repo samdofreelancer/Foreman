@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 import open from "open"
 import { pathToFileURL } from "node:url"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { startForemanLoopback, type ForemanLoopbackServers, type ForemanServerOptions } from "./server"
+import { initializeForeman } from "./bootstrap"
 
-export type ForemanCliRuntime = Pick<ForemanLoopbackServers, "url" | "close">
+export type ForemanCliRuntime = Pick<ForemanLoopbackServers, "url"> & { databasePath: string; close(): Promise<void> }
 
 export type ForemanCliOptions = {
   port?: number
   openBrowser?: boolean
   logger?: ForemanServerOptions["logger"]
+  staticRoot?: string
+  dataDirectory?: string
 }
 
 export function parseForemanPort(value: string | undefined): number {
@@ -28,14 +32,35 @@ export async function startForemanCli(options: ForemanCliOptions = {}): Promise<
     throw new Error("Foreman port must be an integer between 1 and 65535 (or 0 for an ephemeral test port)")
   }
 
-  const runtime = await startForemanLoopback({ port, logger: options.logger })
+  const bootstrap = initializeForeman({ dataDirectory: options.dataDirectory })
+  let runtime: ForemanLoopbackServers
+  try {
+    runtime = await startForemanLoopback({
+      port,
+      logger: options.logger,
+      staticRoot: options.staticRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../dist/client"),
+      health: () => {
+        const database = bootstrap.health()
+        return { status: database.status === "ready" ? "ok" : "degraded", database }
+      },
+    })
+  } catch (error) {
+    bootstrap.close()
+    throw error
+  }
   const shouldOpenBrowser = options.openBrowser ?? process.env.FOREMAN_NO_OPEN !== "1"
   if (shouldOpenBrowser) {
     void open(runtime.url).catch(() => {
       process.stderr.write("Foreman started, but the browser could not be opened automatically.\n")
     })
   }
-  return runtime
+  return {
+    url: runtime.url,
+    databasePath: bootstrap.databasePath,
+    close: async () => {
+      try { await runtime.close() } finally { bootstrap.close() }
+    },
+  }
 }
 
 async function main(): Promise<void> {

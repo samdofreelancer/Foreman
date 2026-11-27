@@ -333,6 +333,32 @@ Phase 3 touches Constitution Articles I, II, III, IV, V, VI, and VIII. Only
 See [ADR-0002](../../docs/architecture/decisions/0002-opencode-process-ownership.md) for
 the process ownership decision and operational constraints.
 
+## Phase 4 Implementation Contract
+
+Phase 4 touches Constitution Articles IV, V, VII, and X. The standalone client is a
+SolidJS SPA compiled independently from the quarantined plugin reference bundle.
+
+- `src/ui/` owns the client entry, route model, shell, accessible navigation, and responsive
+  design tokens/styles. It calls only same-origin Foreman APIs; no OpenCode SDK or secret
+  crosses into the browser.
+- `vite.config.ts` builds the client to `dist/client`; `vite.plugin.config.ts` is retained
+  solely for the transitional plugin-reference build. `npm run dev` builds the client and
+  launches the secured loopback CLI, while `npm run build` builds client, server, and the
+  temporary reference bundle.
+- The CLI initializes `foreman.sqlite` under the platform application-data directory
+  (Windows `%APPDATA%/Foreman`, macOS `~/Library/Application Support/Foreman`, Linux
+  `$XDG_DATA_HOME/foreman` or `~/.local/share/foreman`). `FOREMAN_DATA_DIR` overrides the
+  directory for portable/test setups. SQLite lifecycle is owned by the CLI and closes
+  with the HTTP listeners.
+- `/api/health` distinguishes ready and degraded database startup. A corrupt/unavailable
+  database leaves the local server available to render an accessible recovery screen; the
+  original database file is never deleted automatically.
+- OpenCode remains disconnected by default. The shell must not discover, start, stop, or
+  contact an OpenCode runtime until a later explicit connection action is implemented.
+- Playwright validates deep links, refresh, fresh browser contexts, disconnected runtime,
+  degraded database recovery, mobile navigation, and absence of page-level horizontal
+  overflow at desktop and mobile widths.
+
 ## Risks
 
 | Risk | Mitigation |
