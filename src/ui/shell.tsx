@@ -40,6 +40,7 @@ export function App() {
   const [serverOnline, setServerOnline] = createSignal(true)
   const [csrfToken, setCsrfToken] = createSignal("")
   const [runtimeState, setRuntimeState] = createSignal<{ status: string; version?: string; mode?: string }>({ status: "disconnected" })
+  const [inboxCount, setInboxCount] = createSignal(0)
 
   const navigate = (path: AppRoute) => {
     if (window.location.pathname !== path) window.history.pushState({}, "", path)
@@ -114,7 +115,7 @@ export function App() {
         <div class="nav-section-label">WORKSPACE</div>
         <nav class="primary-nav" aria-label="Main navigation">
           <For each={routes}>{(item) => <a href={item.path} classList={{ "nav-link": true, active: route() === item.path }} aria-current={route() === item.path ? "page" : undefined} onClick={(event) => { event.preventDefault(); navigate(item.path) }}>
-            <Icon name={item.icon}/><span>{item.label}</span><Show when={item.path === "/inbox"}><span class="nav-count">0</span></Show>
+            <Icon name={item.icon}/><span>{item.label}</span><Show when={item.path === "/inbox" && inboxCount() > 0}><span class="nav-count">{inboxCount()}</span></Show>
           </a>}</For>
         </nav>
         <div class="sidebar-spacer" />
@@ -134,7 +135,7 @@ export function App() {
           <div class="topbar-actions"><span class="local-indicator"><span class="status-dot status-online"/>Local app running</span><span class="topbar-divider"/><button class="help-button" aria-label="Application version">v0.1.0</button></div>
         </header>
         <main class="page-content" id="main-content" tabindex="-1">
-          <Workspace route={route()} csrfToken={csrfToken()} onNavigate={navigate} onRuntimeChange={setRuntimeState} />
+          <Workspace route={route()} csrfToken={csrfToken()} onNavigate={navigate} onRuntimeChange={setRuntimeState} onInboxCountChange={setInboxCount} />
           <footer class="page-footer"><span><span class="status-dot status-online"/> Foreman is running locally</span><span>Your data stays on this machine</span></footer>
         </main>
       </div>

@@ -230,3 +230,39 @@ test("resends a failed initial prompt in the existing session without starting a
   expect(resendCalls).toBe(1)
   expect(startCalls).toBe(0)
 })
+
+test("shows Inbox permissions and questions and sends only explicit human responses", async ({ page }) => {
+  let permissionResolved = false
+  let questionAnswered = false
+  await page.route("**/api/runtime", (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ runtime: { status: "connected", mode: "external", version: "2.4.2" } }),
+  }))
+  await page.route("**/api/inbox", (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ items: [
+      ...(!permissionResolved ? [{ id: "permission:perm-e2e", kind: "permission", task: { id: "task-e2e", title: "Write configuration", projectDirectory: "C:\\work\\demo" }, sessionId: "ses-e2e", title: "write file", permission: { id: "perm-e2e", sessionId: "ses-e2e", title: "write file", metadata: { message: "Allow OpenCode to write config.json?", resources: ["config.json"] } } }] : []),
+      ...(!questionAnswered ? [{ id: "question:form-e2e", kind: "question", task: { id: "task-e2e", title: "Choose deployment target", projectDirectory: "C:\\work\\demo" }, sessionId: "ses-e2e", title: "OpenCode needs your input", question: { id: "form-e2e", sessionId: "ses-e2e", questions: [{ key: "target", question: "Select target", options: ["Staging", "Production"] }] } }] : []),
+    ] }),
+  }))
+  await page.route("**/api/inbox/permissions/perm-e2e/reply", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ response: "once" })
+    permissionResolved = true
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ resolved: true }) })
+  })
+  await page.route("**/api/inbox/questions/form-e2e/reply", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ answers: [["Staging"]] })
+    questionAnswered = true
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ resolved: true }) })
+  })
+
+  await page.goto("/inbox")
+  await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible()
+  await expect(page.getByText("Allow OpenCode to write config.json?")).toBeVisible()
+  await expect(page.getByText("Select target")).toBeVisible()
+  await page.getByRole("button", { name: "Allow once" }).click()
+  await expect(page.getByText("Allow OpenCode to write config.json?")).toHaveCount(0)
+  await page.getByLabel("Select target").selectOption("Staging")
+  await page.getByRole("button", { name: "Send answers to OpenCode" }).click()
+  await expect(page.getByRole("heading", { name: "Nothing needs your attention" })).toBeVisible()
+  expect(permissionResolved).toBe(true)
+  expect(questionAnswered).toBe(true)
+})

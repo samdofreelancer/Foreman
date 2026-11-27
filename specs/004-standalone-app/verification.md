@@ -428,3 +428,34 @@ Phase 5 delivers the task manager and offline project workflow. Runtime-driven p
 discovery is not yet wired because connection settings are Phase 8; execution/start/follow-up
 remain Phase 6, Inbox attention aggregation remains Phase 7, and connection configuration
 remains Phase 8.
+
+## 2026-11-27 — Phase 7: Inbox and Human Attention
+
+### Implementation
+
+- Added `InboxService` to derive attention items from live pending OpenCode permissions
+  and forms, task execution errors, failed initial prompts, uncertain session starts,
+  missing linked sessions, and linked sessions with stale/disconnected runtime state.
+- Inbox request IDs and runtime payloads remain transient. No permission/form state,
+  transcript, prompt, or provider credential is written to SQLite.
+- Added same-origin/CSRF protected `/api/inbox`, permission reply, and form reply routes.
+  Replies require a connected runtime and a fresh pending-item lookup scoped to the task's
+  linked session. Permission choices are explicit (`once`, `always`, `reject`); form
+  answers must be complete and select values must match OpenCode's supplied options.
+- Added a responsive Inbox UI with distinct permission, question, execution-error,
+  missing-session, and runtime-unavailable items; task/project context; explicit response
+  controls; empty state; total count; and navigation badge. Inbox refreshes every five
+  seconds while visible so requests resolved directly in OpenCode disappear on the next
+  live query. No automatic approval or answer path exists.
+
+### Verification
+
+| Check | Result | Notes |
+|---|---|---|
+| Full Vitest suite | Pass | 26 test files, **147/147 tests passed**, including final answer-option validation. |
+| Inbox service/API tests | Pass | Permission/form aggregation, execution errors, missing sessions, stale/disconnected runtime, explicit-only replies, pending checks, option validation, and same-origin API actions. |
+| Playwright E2E | Pass | **23 passed, 1 skipped** across desktop Chromium (1440px) and mobile Chromium (390px). Covers multiple attention items, explicit permission response, form submission, external resolution, and empty Inbox. |
+| TypeScript typecheck | Pass | `npm run typecheck`. |
+| Architecture checks | Pass | `npm run check:architecture`; 4/4 architecture boundary tests. |
+| Production build | Pass | `npm run build`; standalone client, Node server, and quarantined plugin reference bundle. |
+| `git diff --check` | Pass | No whitespace errors; only expected Windows LF→CRLF warnings. |

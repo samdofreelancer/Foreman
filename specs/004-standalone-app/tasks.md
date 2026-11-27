@@ -253,19 +253,36 @@ and native Keychain/Secret Service storage remain outside this phase.
 
 Articles: I, II, III, IV, V, VI, VII, VIII.
 
-- [ ] T050 [P] Write tests for deriving attention items from supported OpenCode
+- [x] T050 [P] Write tests for deriving attention items from supported OpenCode
   permissions, questions/forms, errors, and stale/missing sessions.
-- [ ] T051 Implement Inbox query/use case that aggregates actionable states by task and
+- [x] T051 Implement Inbox query/use case that aggregates actionable states by task and
   links each item to its task context.
-- [ ] T052 Build Inbox view with distinct permission/question/error states, readable
+- [x] T052 Build Inbox view with distinct permission/question/error states, readable
   reasons, counts, empty state, and navigation to the relevant task.
-- [ ] T053 Ensure resolving an item in OpenCode clears the Foreman Inbox after event
+- [x] T053 Ensure resolving an item in OpenCode clears the Foreman Inbox after event
   update or reconnect reconciliation; do not auto-approve or auto-answer.
-- [ ] T054 Add integration/E2E coverage for multiple attention items, externally resolved
+- [x] T054 Add integration/E2E coverage for multiple attention items, externally resolved
   requests, errors, empty Inbox, and disconnected runtime.
 
 **Independent Test**: create supported attention states on linked sessions and verify
 they appear in Inbox without any action being taken on the owner's behalf.
+
+**Implementation checkpoint (2026-11-27)**: T050-T054 implemented. `InboxService`
+derives transient attention items from pending OpenCode permission requests and forms,
+Foreman task execution errors, uncertain starts, missing linked sessions, and linked
+sessions whose runtime is stale/disconnected. Pending runtime request IDs and payloads are
+queried live and are not persisted in SQLite. The same-origin/CSRF protected Inbox API
+supports explicit permission decisions (`once`, `always`, `reject`) and form answers;
+the service verifies that each request is still pending on the task's linked session
+before forwarding it. No permission is auto-approved and no question is auto-answered.
+
+The Inbox UI displays per-item task/project context, distinct attention categories,
+permission actions, question fields, execution/missing-session errors, runtime
+availability warnings, an empty state, and a total count. The navigation badge reflects
+the current count while Inbox is open. Inbox refreshes every five seconds while visible,
+so a request resolved directly in OpenCode disappears on the next poll; reconnect causes
+the same live query to reflect the authoritative runtime state. No transcript or prompt
+content is persisted by Inbox.
 
 ## Phase 8: User Story 5 — Connection and Application Health
 

@@ -1,13 +1,14 @@
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { applyTaskFilters, normalizeProjectDirectory } from "../domain/filters"
 import { groupTasks } from "../domain/columns"
 import type { Task, TaskColumn } from "../domain/task"
 import type { Project } from "../domain/project"
 import type { ActivityEvent } from "../domain/activity"
+import type { AttentionItem } from "../application/inbox"
 import type { AppRoute } from "./routes"
 
 type RuntimeView = { status: "connected" | "stale" | "connecting" | "disconnected"; mode?: "managed" | "external"; version?: string; reason?: string; sessionBaseUrl?: string }
-type Props = { route: AppRoute; csrfToken: string; onNavigate(path: AppRoute): void; onRuntimeChange(status: RuntimeView): void }
+type Props = { route: AppRoute; csrfToken: string; onNavigate(path: AppRoute): void; onRuntimeChange(status: RuntimeView): void; onInboxCountChange(count: number): void }
 const columns: Array<{ id: TaskColumn; label: string; hint: string }> = [
   { id: "todo", label: "Todo", hint: "Ideas and upcoming work" },
   { id: "ready", label: "Ready", hint: "Prepared to execute" },
@@ -60,6 +61,7 @@ export function Workspace(props: Props) {
   const [tasks, setTasks] = createSignal<Task[]>([])
   const [projects, setProjects] = createSignal<Project[]>([])
   const [activities, setActivities] = createSignal<ActivityEvent[]>([])
+  const [inboxItems, setInboxItems] = createSignal<AttentionItem[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal("")
   const [query, setQuery] = createSignal("")
@@ -118,6 +120,41 @@ export function Workspace(props: Props) {
     } finally { setLoading(false) }
   }
   void refresh()
+
+  const loadInbox = async () => {
+    try {
+      const result = await request<{ items: AttentionItem[] }>("/api/inbox", props.csrfToken)
+      setInboxItems(result.items)
+      props.onInboxCountChange(result.items.length)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Inbox could not be loaded.") }
+  }
+  createEffect(() => {
+    if (props.route !== "/inbox") return
+    void loadInbox()
+    const interval = window.setInterval(() => void loadInbox(), 5_000)
+    onCleanup(() => window.clearInterval(interval))
+  })
+
+  const respondPermission = async (id: string, response: "once" | "always" | "reject") => {
+    setRuntimeBusy(true); setError("")
+    try { await request(`/api/inbox/permissions/${encodeURIComponent(id)}/reply`, props.csrfToken, "POST", { response }); await loadInbox(); await refresh() }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Permission response failed.") }
+    finally { setRuntimeBusy(false) }
+  }
+  const respondQuestion = async (event: SubmitEvent, item: Extract<AttentionItem, { kind: "question" }>) => {
+    event.preventDefault()
+    const fields = Array.from((event.currentTarget as HTMLFormElement).querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-answer]"))
+    setRuntimeBusy(true); setError("")
+    try {
+      await request(`/api/inbox/questions/${encodeURIComponent(item.question.id)}/reply`, props.csrfToken, "POST", { answers: fields.map((field) => [field.value]) })
+      await loadInbox(); await refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Question response failed.") }
+    finally { setRuntimeBusy(false) }
+  }
+  const openAttentionTask = (item: AttentionItem) => {
+    setSelected(tasks().find((task) => task.id === item.task.id))
+    props.onNavigate("/board")
+  }
 
   const filteredTasks = createMemo(() => applyTaskFilters(tasks(), projectFilter() || undefined, query()))
   const grouped = createMemo(() => groupTasks(filteredTasks()))
@@ -271,7 +308,17 @@ export function Workspace(props: Props) {
     <Show when={!loading() && props.route === "/activity"}>
       <section class="activity-list"><Show when={activities().length === 0}><div class="workspace-empty compact"><h2>No activity yet</h2><p>Task and project changes will be recorded here.</p></div></Show><For each={activities()}>{(activity) => <article class="activity-row"><span class="activity-mark"/><div><strong>{activity.summary}</strong><p>{activity.type.replaceAll(".", " · ")}</p></div><time>{formatDate(activity.occurredAt)}</time></article>}</For></section>
     </Show>
-    <Show when={!loading() && props.route === "/inbox"}><section class="workspace-empty"><div class="empty-symbol">✓</div><h2>Nothing needs your attention</h2><p>OpenCode is disconnected. When runtime attention is supported and connected, permissions and questions will appear here.</p><button class="text-button" onClick={() => props.onNavigate("/settings")}>Connection settings →</button></section></Show>
+    <Show when={!loading() && props.route === "/inbox"}>
+      <div class="inbox-toolbar"><span>{inboxItems().length} {inboxItems().length === 1 ? "item" : "items"} need attention</span><button class="button button-quiet" onClick={() => void loadInbox()}>Refresh inbox</button></div>
+      <Show when={inboxItems().length === 0}><section class="workspace-empty"><div class="empty-symbol">✓</div><h2>Nothing needs your attention</h2><p>Pending permissions, questions, and execution issues from linked OpenCode sessions will appear here.</p><Show when={runtimeStatus().status !== "connected"}><button class="text-button" onClick={() => props.onNavigate("/settings")}>Connect OpenCode →</button></Show></section></Show>
+      <section class="inbox-list"><For each={inboxItems()}>{(item) => <article class="inbox-item">
+        <div class="inbox-item-head"><span class={`inbox-kind inbox-${item.kind}`}>{item.kind.replaceAll("-", " ")}</span><span class="inbox-project">{item.task.projectDirectory}</span></div>
+        <h2>{item.title}</h2><p class="inbox-task-title">{item.task.title}</p>
+        {item.kind === "permission" ? <div class="inbox-detail"><p>{typeof item.permission.metadata?.message === "string" ? item.permission.metadata.message : "OpenCode is requesting permission to perform an action."}</p><Show when={Array.isArray(item.permission.metadata?.resources)}><ul><For each={item.permission.metadata?.resources as string[]}>{(resource) => <li><code>{resource}</code></li>}</For></ul></Show><div class="inbox-actions"><button class="button button-primary" disabled={runtimeBusy()} onClick={() => void respondPermission(item.permission.id, "once")}>Allow once</button><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void respondPermission(item.permission.id, "always")}>Always allow</button><button class="button button-danger" disabled={runtimeBusy()} onClick={() => void respondPermission(item.permission.id, "reject")}>Reject</button></div></div> : null}
+        {item.kind === "question" ? <form class="inbox-question-form" onSubmit={(event) => void respondQuestion(event, item)}><For each={item.question.questions}>{(question) => <label>{question.question}{question.options?.length ? <select data-answer required><option value="">Choose an answer</option><For each={question.options}>{(option) => <option value={option}>{option}</option>}</For></select> : <input data-answer required maxlength="2000" placeholder="Your answer"/>}</label>}</For><button class="button button-primary" type="submit" disabled={runtimeBusy()}>Send answers to OpenCode</button></form> : null}
+        {"reason" in item ? <div class="inbox-detail"><p>{item.reason}</p><button class="button button-quiet" onClick={() => openAttentionTask(item)}>Open task context</button><Show when={item.kind === "runtime-unavailable"}><button class="text-button" onClick={() => props.onNavigate("/settings")}>Connection settings →</button></Show></div> : null}
+      </article>}</For></section>
+    </Show>
     <Show when={!loading() && props.route === "/settings"}>
       <section class="runtime-settings-panel">
         <div class="section-heading"><div><p class="eyebrow">OPENCODE RUNTIME</p><h2>{runtimeStatus().status === "connected" ? "Runtime connected" : "Connect a runtime"}</h2><p>{runtimeStatus().status === "connected" ? `OpenCode ${runtimeStatus().version ?? "2.4.x"} · ${runtimeStatus().mode ?? "runtime"} mode` : "Foreman requires an OpenCode 2.4.x server. Your global CLI is not modified."}</p></div><Show when={runtimeStatus().status === "connected"}><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void disconnectRuntime()}>Disconnect</button></Show></div>

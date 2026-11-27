@@ -13,6 +13,7 @@ import { createActivityEvent } from "../domain/activity"
 import type { TaskRepository, ProjectRepository, ActivityRepository } from "../application/ports/repositories"
 import type { TaskExecutionService } from "../application/task-execution"
 import type { ForemanRuntimeController, RuntimeConnectInput } from "./runtime-controller"
+import { InboxService } from "../application/inbox"
 
 const SESSION_COOKIE = "foreman_session"
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
@@ -176,6 +177,28 @@ function registerWorkspaceApi(
   }
   const fail = (reply: import("fastify").FastifyReply, status: number, code: string, message: string) =>
     reply.code(status).send({ error: { code, message } })
+
+  const inbox = new InboxService({
+    tasks,
+    gateway: () => runtime?.activeGateway,
+    runtimeStatus: () => runtime?.status.status ?? "disconnected",
+  })
+  app.get("/api/inbox", async () => ({ items: await inbox.list() }))
+  app.post<{ Params: { id: string } }>("/api/inbox/permissions/:id/reply", async (request, reply) => {
+    if (!record(request.body) || !["once", "always", "reject"].includes(String(request.body.response))) return fail(reply, 400, "INVALID_PERMISSION_RESPONSE", "Choose once, always, or reject.")
+    try {
+      await inbox.replyPermission(request.params.id, request.body.response as "once" | "always" | "reject")
+      return { resolved: true }
+    } catch (error) { return fail(reply, 409, "PERMISSION_REPLY_REJECTED", error instanceof Error ? error.message : "Permission could not be resolved.") }
+  })
+  app.post<{ Params: { id: string } }>("/api/inbox/questions/:id/reply", async (request, reply) => {
+    if (!record(request.body) || !Array.isArray(request.body.answers) || request.body.answers.length > 50
+      || request.body.answers.some((answer) => !Array.isArray(answer) || answer.length > 20 || answer.some((value) => typeof value !== "string" || value.length > 2_000))) return fail(reply, 400, "INVALID_QUESTION_RESPONSE", "Provide valid answers for the requested questions.")
+    try {
+      await inbox.replyQuestion(request.params.id, request.body.answers as string[][])
+      return { resolved: true }
+    } catch (error) { return fail(reply, 409, "QUESTION_REPLY_REJECTED", error instanceof Error ? error.message : "Question could not be answered.") }
+  })
 
   app.get("/api/runtime", async () => ({ runtime: runtime?.status ?? { status: "disconnected" } }))
   app.post("/api/runtime/connect", async (request, reply) => {

@@ -150,4 +150,32 @@ describe("standalone workspace API", () => {
     expect((await request(`/api/tasks/${task.id}`, "DELETE")).status).toBe(409)
     expect(tasks.getById(task.id)?.sessionID).toBe("ses-linked")
   })
+
+  it("aggregates Inbox attention and only replies after an explicit same-origin action", async () => {
+    const gateway = {
+      listPendingPermissions: vi.fn(async (sessionId: string) => [{ id: "perm-api", sessionId, title: "write file" }]),
+      listPendingQuestions: vi.fn(async (sessionId: string) => [{ id: "form-api", sessionId, questions: [{ question: "Continue?" }] }]),
+      replyPermission: vi.fn(async () => undefined),
+      replyQuestion: vi.fn(async () => undefined),
+    }
+    const runtime = { status: { status: "connected" }, get activeGateway() { return gateway }, close: vi.fn(async () => undefined) }
+    const { request, tasks } = await workspace({ runtime })
+    const created = await request("/api/tasks", "POST", { title: "Inbox task", projectDirectory: "/work/inbox" })
+    const { task } = await created.json() as { task: { id: string } }
+    tasks.update({ ...tasks.getById(task.id)!, column: "ready", updatedAt: Date.now() })
+    expect(tasks.claimStart(task.id, "claim-inbox", Date.now())).toBe(true)
+    expect(tasks.claimSession(task.id, "session-inbox", Date.now() + 1, "claim-inbox")).toBe(true)
+
+    const inbox = await request("/api/inbox")
+    expect(await inbox.json()).toMatchObject({ items: [
+      { kind: "permission", task: { id: task.id }, permission: { id: "perm-api" } },
+      { kind: "question", task: { id: task.id }, question: { id: "form-api" } },
+    ] })
+    expect(gateway.replyPermission).not.toHaveBeenCalled()
+    expect((await request("/api/inbox/permissions/perm-api/reply", "POST", { response: "once" })).status).toBe(200)
+    expect(gateway.replyPermission).toHaveBeenCalledWith({ permissionId: "perm-api", response: "once" })
+    expect((await request("/api/inbox/questions/form-api/reply", "POST", { answers: [["yes"]] })).status).toBe(200)
+    expect(gateway.replyQuestion).toHaveBeenCalledWith({ requestId: "form-api", answers: [["yes"]] })
+    expect((await request("/api/inbox/permissions/perm-api/reply", "POST", { response: "approve-all" })).status).toBe(400)
+  })
 })
