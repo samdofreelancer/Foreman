@@ -43,26 +43,30 @@ verified by this checkpoint.
 
 Articles: II, III, IV, VI, IX.
 
-- [ ] T006 [P] Write domain tests for task/project/activity entities, validation,
+- [x] T006 [P] Write domain tests for task/project/activity entities, validation,
   transitions, and immutable identifiers/timestamps.
-- [ ] T007 [P] Write failing concurrency tests proving one task cannot acquire two
+- [x] T007 [P] Write failing concurrency tests proving one task cannot acquire two
   session ids and one session id cannot be assigned to multiple tasks.
-- [ ] T008 [P] Define application ports for TaskRepository, ProjectRepository,
+- [x] T008 [P] Define application ports for TaskRepository, ProjectRepository,
   ActivityRepository, TransactionRunner, OpenCodeGateway, and SecretStore.
-- [ ] T009 Implement pure domain entities and decisions under `src/domain/`; remove
+- [x] T009 Implement pure domain entities and decisions under `src/domain/`; remove
   dependence on plugin store types.
-- [ ] T010 Implement SQLite connection management, schema version ledger, and ordered
+- [x] T010 Implement SQLite connection management, schema version ledger, and ordered
   transactional migrations under `src/adapters/persistence/sqlite/`.
-- [ ] T011 Implement TaskRepository with atomic create/update/delete and immutable
+- [x] T011 Implement TaskRepository with atomic create/update/delete and immutable
   `session_id` semantics; enforce a unique nullable session id at database level.
-- [ ] T012 Implement ProjectRepository and ActivityRepository with safe structured
+- [x] T012 Implement ProjectRepository and ActivityRepository with safe structured
   metadata and no transcript/secret fields.
-- [ ] T013 Implement database startup recovery: integrity check, migration failure state,
+- [x] T013 Implement database startup recovery: integrity check, migration failure state,
   read-only/degraded mode, and actionable UI-safe errors.
-- [ ] T014 Add repository integration tests against temporary SQLite files, including
+- [x] T014 Add repository integration tests against temporary SQLite files, including
   migration from an empty database, rollback, corruption, and concurrent session claims.
 
 **Checkpoint**: domain and SQLite adapters pass tests without importing OpenCode or UI.
+**Complete (2026-11-27)**: T006-T014 implemented and verified on Node.js 22.23.5 and
+24.15.0. SQLite v1 migration, repositories, unique/immutable session linkage, safe
+append-only activity metadata, transaction/migration rollback, corrupt/future-schema
+handling, and read-only startup are covered by automated tests.
 
 ## Phase 2: Standalone Server and Local Security (US1, US5)
 

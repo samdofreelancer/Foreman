@@ -99,3 +99,46 @@ release check. Managed service lifecycle isolation is also still a Phase 3 relea
 - `npm install` reports 27 audit findings in the existing dependency graph (25
   moderate, 2 critical). No automatic audit fix was applied because that would broaden
   this targeted SDK upgrade into unrelated dependency changes.
+
+## 2026-11-27 — Phase 1: Domain, ports, and SQLite
+
+### Implementation
+
+- Added pure Project and ActivityEvent domain entities with validation, immutable
+  identity/creation timestamps, monotonic update timestamps, and bounded structured
+  activity metadata. Tightened Task timestamp and update validation while preserving
+  the legacy feature fields and four-column semantics.
+- Added application ports for TaskRepository, ProjectRepository, ActivityRepository,
+  TransactionRunner, OpenCodeGateway, and SecretStore. No adapter or UI imports leak
+  into the domain.
+- Added `better-sqlite3` 12.8.0 with TypeScript declarations. SQLite v1 creates a schema
+  migration ledger, projects, tasks, activity events, and supporting indexes.
+- Evaluated npm-latest `better-sqlite3` 13.2.0 but rejected it for this Windows baseline:
+  Node 22 fell back to a native source build and failed because the host lacks the MSVC
+  C++ toolset. Version 12.8.0 rebuilt and passed on both supported Node versions.
+- Task persistence uses a nullable unique `session_id`, an immutable-session trigger,
+  an atomic claim operation, and a database check that `doing` requires a linked session.
+- Project and Activity repositories support CRUD/query operations. Activity metadata is
+  revalidated at persistence time and rejects sensitive/transcript-shaped keys.
+- Startup performs SQLite integrity checks, ordered transactional migrations, rejects
+  newer schema versions, supports read-only mode for a current schema, and reports
+  generic degraded-mode errors while retaining diagnostic causes separately.
+
+### Verification
+
+| Check | Node.js 22.23.5 | Node.js 24.15.0 |
+|---|---:|---:|
+| Full Vitest suite | Pass — 69 tests | Pass — 69 tests |
+| TypeScript typecheck | Pass | Pass |
+| Architecture boundary tests | Included in full suite — 3 pass | Pass — 3 tests |
+| Production build | Not separately repeated | Pass — transitional plugin reference bundle |
+| `git diff --check` | — | Pass |
+
+SQLite repository tests use temporary database files and cover empty-database
+migration, CRUD, transaction rollback, corruption, future schema rejection, read-only
+startup, safe activity persistence, and competing session claims from two SQLite
+connections. Native `better-sqlite3` bindings were rebuilt for each Node ABI before
+testing; this is expected for a native module and does not change the lockfile.
+
+The standalone server/UI and OpenCode adapter are intentionally not implemented in this
+phase. Managed OpenCode service lifecycle remains a Phase 3 release gate.

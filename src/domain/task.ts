@@ -36,7 +36,7 @@ export type TaskInput = {
   column?: TaskColumn
 }
 
-export type TaskPatch = Partial<Omit<Task, "id" | "createdAt">>
+export type TaskPatch = Partial<Omit<Task, "id" | "createdAt" | "updatedAt" | "sessionID">>
 
 export function validateTaskInput(input: TaskInput) {
   const title = input.title.trim()
@@ -64,6 +64,8 @@ function isAbsolutePath(path: string) {
 }
 
 export function createTask(input: TaskInput, now: number, id: string): Task {
+  if (!id.trim()) throw new Error("Task id is required")
+  if (!Number.isFinite(now) || now < 0) throw new Error("Task timestamp must be a non-negative finite number")
   const validation = validateTaskInput(input)
   if (!validation.valid) {
     throw new Error(validation.titleError ?? validation.projectError)
@@ -83,6 +85,9 @@ export function createTask(input: TaskInput, now: number, id: string): Task {
 }
 
 export function updateTask(existing: Task, patch: TaskPatch, now: number): Task {
+  if (!Number.isFinite(now) || now < existing.updatedAt) {
+    throw new Error("Task timestamp cannot move backwards")
+  }
   if (patch.column === "doing" && !existing.sessionID) {
     throw new Error("Doing is managed by runs")
   }
@@ -94,6 +99,8 @@ export function updateTask(existing: Task, patch: TaskPatch, now: number): Task 
     sessionID: existing.sessionID,
     updatedAt: now,
   }
+  const validation = validateTaskInput({ title: next.title, projectDirectory: next.projectDirectory })
+  if (!validation.valid) throw new Error(validation.titleError ?? validation.projectError)
   if (next.column === "done") {
     next.finishedAt = existing.finishedAt ?? now
   } else {
@@ -123,6 +130,8 @@ export function safeTaskArray(value: unknown): Task[] {
 }
 
 export function markTaskStarted(task: Task, sessionID: string, now: number): Task {
+  if (!sessionID.trim()) throw new Error("Session id is required")
+  if (!Number.isFinite(now) || now < task.updatedAt) throw new Error("Task timestamp cannot move backwards")
   if (task.sessionID) return task
   return {
     ...task,
@@ -140,6 +149,7 @@ export function markTaskStartFailed(
   error: string,
   now: number,
 ): Task {
+  assertTaskTimestamp(task, now)
   return {
     ...task,
     column: previousColumn,
@@ -149,6 +159,7 @@ export function markTaskStartFailed(
 }
 
 export function setTaskFinished(task: Task, now: number): Task {
+  assertTaskTimestamp(task, now)
   return {
     ...task,
     column: "done",
@@ -162,10 +173,15 @@ export function clearTaskFinished(
   column: "todo" | "ready",
   now: number,
 ): Task {
+  assertTaskTimestamp(task, now)
   return {
     ...task,
     column,
     finishedAt: undefined,
     updatedAt: now,
   }
+}
+
+function assertTaskTimestamp(task: Task, now: number) {
+  if (!Number.isFinite(now) || now < task.updatedAt) throw new Error("Task timestamp cannot move backwards")
 }

@@ -126,7 +126,15 @@ describe("task domain", () => {
       "task-1",
     )
     const started = markTaskStarted(task, "ses-1", 200)
-    const updated = updateTask(started, { sessionID: "ses-replacement" }, 300)
+    const updated = updateTask(started, { sessionID: "ses-replacement" } as never, 300)
     expect(updated.sessionID).toBe("ses-1")
+  })
+
+  it("rejects timestamps that move backwards", () => {
+    const task = createTask({ title: "Clock", projectDirectory: "/projects/foreman" }, 100, "task-1")
+    expect(() => updateTask(task, { title: "Older" }, 99)).toThrow(/timestamp/i)
+    expect(() => createTask({ title: "Bad", projectDirectory: "/projects/foreman" }, -1, "task-2")).toThrow(/timestamp/i)
+    expect(() => updateTask(task, { title: " " }, 101)).toThrow(/title/i)
+    expect(() => setTaskFinished(task, 99)).toThrow(/timestamp/i)
   })
 })

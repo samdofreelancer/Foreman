@@ -1,0 +1,21 @@
+export type RuntimeProject = { directory: string; name?: string }
+export type RuntimeSession = { id: string; title?: string; directory?: string; status?: string }
+export type RuntimeEvent = { type: string; properties?: Record<string, unknown> }
+export type RuntimePermission = { id: string; sessionId: string; title?: string; metadata?: Record<string, unknown> }
+export type RuntimeQuestion = { id: string; sessionId: string; questions: Array<{ question: string; options?: string[] }> }
+
+/** Supported OpenCode operations. Implementations live exclusively in the OpenCode adapter. */
+export interface OpenCodeGateway {
+  health(): Promise<{ connected: boolean; version?: string; reason?: string }>
+  listProjects(): Promise<RuntimeProject[]>
+  createSession(input: { directory: string; title: string }): Promise<RuntimeSession>
+  sendPrompt(input: { sessionId: string; text: string }): Promise<void>
+  sendFollowUp(input: { sessionId: string; text: string }): Promise<void>
+  interrupt(sessionId: string): Promise<void>
+  readSession(sessionId: string): Promise<RuntimeSession | undefined>
+  listPendingPermissions(sessionId?: string): Promise<RuntimePermission[]>
+  replyPermission(input: { permissionId: string; response: "once" | "always" | "reject" }): Promise<void>
+  listPendingQuestions(sessionId?: string): Promise<RuntimeQuestion[]>
+  replyQuestion(input: { requestId: string; answers: string[][] }): Promise<void>
+  subscribeEvents(): AsyncIterable<RuntimeEvent>
+}

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const sourceRoot = resolve(repositoryRoot, "src")
 const domainRoot = resolve(sourceRoot, "domain")
+const applicationRoot = resolve(sourceRoot, "application")
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx"])
 
 type ImportReference = {
@@ -88,6 +89,29 @@ describe("architecture boundaries", () => {
         violations.push(
           `${relativePath(file)}:${reference.line} imports ${reference.specifier}`,
         )
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
+  it("keeps application ports independent from adapters, UI, and runtime packages", () => {
+    const files = listSourceFiles(applicationRoot)
+    const violations: string[] = []
+
+    for (const file of files) {
+      for (const reference of readImports(file)) {
+        const location = `${relativePath(file)}:${reference.line}`
+        if (reference.specifier.startsWith(".")) {
+          const target = resolve(dirname(file), reference.specifier)
+          const relativeTarget = relative(sourceRoot, target)
+          if (!(relativeTarget === "domain" || relativeTarget.startsWith(`domain${sep}`)
+            || relativeTarget === "application" || relativeTarget.startsWith(`application${sep}`))) {
+            violations.push(`${location} imports outside domain/application: ${reference.specifier}`)
+          }
+          continue
+        }
+        violations.push(`${location} imports external dependency: ${reference.specifier}`)
       }
     }
 

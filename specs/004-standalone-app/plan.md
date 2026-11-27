@@ -239,6 +239,40 @@ health before enabling execution actions. Ship task management and explicit exec
 before attention/inbox polish. Backup/restore and security verification are release
 gates. Remove the plugin implementation only after all standalone acceptance tests pass.
 
+## Phase 1 Implementation Contract
+
+Phase 1 touches Constitution Articles II, III, IV, VI, and IX. It does not implement an
+OpenCode client, process lifecycle, server, or UI. Domain and persistence code must remain
+independent of `@opencode/client`, `@opencode/plugin`, and browser/UI packages.
+
+- **Task** retains the Feature 001 fields and four-column semantics. Its id and
+  `createdAt` are immutable; `updatedAt` cannot move backwards; `sessionID` is assigned
+  only through an atomic repository claim and cannot be replaced. `doing` requires a
+  linked session.
+- **Project** has a stable id, display name, absolute local directory, and immutable
+  creation timestamp. Project directory is unique in SQLite.
+- **ActivityEvent** is an append-only summary with optional task/project references and
+  bounded JSON metadata. Metadata rejects transcript, prompt, credential, token,
+  password, and authorization-shaped keys; it has no transcript/body payload field.
+- **Application ports** define Task, Project, and Activity repositories, transaction
+  execution, the OpenCode gateway contract, and a separate secret store. Only adapters
+  implement infrastructure effects.
+- **SQLite v1** uses a migration ledger and transactional ordered migrations. It owns
+  projects, tasks, and activity only; it does not attach to or inspect OpenCode storage.
+  A nullable unique `session_id` plus an immutability trigger enforces the one-task/one-
+  session rule at the database boundary.
+- **Recovery** runs `PRAGMA integrity_check`, rejects newer unsupported schemas, rolls
+  back failed migrations, supports read-only open for an already-migrated database, and
+  returns a generic degraded startup error with a separate diagnostic cause.
+
+The implementation is deliberately synchronous at the SQLite adapter boundary using
+`better-sqlite3`; application ports remain replaceable and domain logic stays pure.
+The current exact native dependency pin is `better-sqlite3` 12.8.0: it was verified on
+Node 22.23.5 and 24.15.0 in the Windows reference environment. The npm-latest 13.2.0
+fallback attempted a source build under Node 22 and could not complete because this host
+does not have the Visual C++ toolset; the older compatible pin avoids making that toolset
+a prerequisite for the supported developer setup.
+
 ## Risks
 
 | Risk | Mitigation |
