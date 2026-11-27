@@ -117,4 +117,17 @@ describe("architecture boundaries", () => {
 
     expect(violations).toEqual([])
   })
+
+  it("confines the OpenCode SDK to its adapter boundary", () => {
+    const files = listSourceFiles(sourceRoot)
+    const violations: string[] = []
+    for (const file of files) {
+      for (const reference of readImports(file)) {
+        if (!reference.specifier.startsWith("@opencode/client")) continue
+        if (relativePath(file).startsWith("src/adapters/opencode/")) continue
+        violations.push(`${relativePath(file)}:${reference.line} imports ${reference.specifier}`)
+      }
+    }
+    expect(violations).toEqual([])
+  })
 })

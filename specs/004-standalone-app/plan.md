@@ -309,6 +309,30 @@ decommissioning gates are satisfied.
 Phase 2 verification includes HTTP-level Host/Origin/CSRF tests, occupied-port and loopback
 tests, static SPA fallback tests, CLI startup without OpenCode, and listener shutdown.
 
+## Phase 3 Implementation Contract
+
+Phase 3 touches Constitution Articles I, II, III, IV, V, VI, and VIII. Only
+`src/adapters/opencode/` may import `@opencode/client` or manage an OpenCode process.
+
+- The adapter pins the server compatibility gate to OpenCode 2.4.x and uses typed SDK
+  methods for project/session, prompt, interrupt, permission, form, and event operations.
+- External mode validates HTTP(S) endpoints, rejects URL-embedded credentials, requires
+  HTTPS for non-loopback credentials, and never stops or mutates the external server.
+- Managed mode directly spawns `opencode serve --hostname 127.0.0.1 --port <port>` and
+  retains the exact child-process handle. It never adopts the Desktop/TUI service or uses
+  shared `Service.stop()` registration.
+- The supervisor applies a startup timeout, health polling, reconnect backoff, abortable
+  event subscriptions, and mandatory session reconciliation after event-stream loss.
+  Until reconciliation completes, runtime state is stale rather than live.
+- Event delivery uses stream backpressure and an allowlist of lifecycle/attention events;
+  transcript text, prompts, and tool deltas are discarded before crossing the adapter.
+- Secrets use the `SecretStore` port. Windows uses Credential Manager with a process-memory
+  fallback; macOS/Linux currently use process-memory storage. No secret is persisted in
+  SQLite or browser storage.
+
+See [ADR-0002](../../docs/architecture/decisions/0002-opencode-process-ownership.md) for
+the process ownership decision and operational constraints.
+
 ## Risks
 
 | Risk | Mitigation |

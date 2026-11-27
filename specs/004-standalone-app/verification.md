@@ -207,3 +207,82 @@ suite; the Node 24 run used the matching Node-24-ABI binding. `npm pack --dry-ru
 passed for `foreman@0.1.0`, confirming the package metadata and `foreman` bin mapping are
 valid. The package remains transitional: it still contains the quarantined plugin
 reference bundle until the standalone UI and decommissioning gates are complete.
+
+## 2026-11-27 — Phase 3: OpenCode adapter and connection lifecycle
+
+### Implementation
+
+- Added `src/adapters/opencode/gateway.ts`, the only adapter using the pinned
+  `@opencode/client` 2.4.2 Promise SDK. It maps health/version/capabilities, project
+  discovery, session create/read, prompt/follow-up, interrupt, pending permission/form
+  reads and explicit replies, plus the typed event stream.
+- The adapter accepts only the OpenCode 2.4.x server line. Endpoint validation rejects
+  invalid schemes, URL-embedded credentials, query/fragment components, and cleartext
+  credentials to non-loopback endpoints. Basic auth headers remain server-side.
+- Event delivery is allowlisted to lifecycle, project, permission, and form events.
+  Transcript text, prompt content, and tool deltas are discarded before events cross the
+  adapter boundary. Event consumption preserves stream backpressure.
+- Added `ManagedOpenCodeProcess`, which starts `opencode serve` on an ephemeral IPv4
+  loopback port, tracks the exact spawned child, applies a startup timeout, and stops only
+  that child. The shared `@opencode/client/service` registration helpers are not used
+  because their ownership semantics were not proven safe beside the Desktop service.
+- Added `RuntimeConnection` for managed/external mode selection. Mode switching requires
+  explicit disconnect; external disconnect only drops the client reference. External
+  credentials are retrieved from `SecretStore` and missing configured credentials fail
+  closed. Managed mode validates the server API and uses the configured server credentials.
+- Added `ConnectionSupervisor` with startup timeout, health polling, stale/disconnected
+  states, abortable event streams, exponential reconnect delay, resubscription, and
+  mandatory reconciliation of every linked session before reporting a recovered stream
+  as connected.
+- Added `MemorySecretStore`, Windows Credential Manager storage via PowerShell/.NET
+  interop (secret payload is sent through stdin, not argv), and process-memory fallback.
+  Non-Windows platforms currently use process-memory storage pending native Keychain and
+  Secret Service adapters. If persistent deletion cannot be verified during vault failure,
+  the adapter reports an error rather than claiming the credential was deleted.
+- Added ADR-0002 documenting process ownership, compatibility, event filtering, and secret
+  handling. Architecture tests now ensure only `src/adapters/opencode/` imports the SDK.
+
+### Verification
+
+| Check | Result | Notes |
+|---|---|---|
+| Full Vitest suite | Pass | 20 test files, **110/110 tests passed**. |
+| OpenCode adapter contract tests | Pass | Health/version, project discovery, session lifecycle, prompts/follow-up, interrupt, permission/form mapping, event filtering, endpoint validation and unsupported runtime. |
+| Connection lifecycle tests | Pass | Reconnect, stream termination, abort on disconnect, missed-event reconciliation, stale state, startup timeout and external/managed ownership. |
+| Process ownership tests | Pass | Managed process stops only its tracked child; external disconnect never stops the server. |
+| Secret-store tests | Pass | Windows Credential Manager read-only missing-entry probe, memory fallback, endpoint credential handling and delete-failure reporting. No real credential was created or changed. |
+| Persistence regression | Pass | Simulated managed runtime exit leaves Foreman SQLite task records unchanged. |
+| TypeScript typecheck | Pass | `npm run typecheck`. |
+| Architecture checks | Pass | `npm run check:architecture`; 4/4 boundary tests. |
+| Production build | Pass | Node server bundle and temporary plugin reference bundle both build. |
+| `git diff --check` | Pass | No whitespace errors; only expected Windows LF→CRLF warnings. |
+
+### Isolated OpenCode 2.4.2 integration smoke test
+
+- Verified `npm exec --yes --package=@opencode/cli@2.4.2 -- opencode --version` reports
+  `opencode v2.4.2`; the global legacy CLI was not replaced.
+- Started the exact cached 2.4.2 executable as a Foreman-owned child with temporary
+  XDG config/data/state paths, a temporary `OPENCODE_DB`, a temporary project directory,
+  and a test-only server password. No Desktop service or user OpenCode database was used.
+- Through the actual SDK adapter, verified server version/capabilities, project listing,
+  session creation/readback, interrupt, and receipt of `server.connected` on the typed
+  event stream. The session did not receive a prompt, so no model/provider inference was
+  triggered.
+- Repeated the probe through `RuntimeConnection.connectManaged()`: managed mode passed
+  health/authentication checks, created/read back a session, and `disconnect()` stopped
+  the Foreman-owned child. A post-stop health probe returned disconnected.
+- Started a separate isolated server as an external process and connected through
+  `RuntimeConnection.connectExternal()`. After Foreman disconnect, a fresh SDK probe still
+  returned healthy OpenCode 2.4.2; only the test harness then stopped that isolated server.
+- Both isolated databases/config roots were removed after their probes. No Desktop service
+  or user OpenCode database was used.
+- No real user credential was written to Windows Credential Manager; its tested path was
+  a read-only lookup for a known non-existent Foreman test key.
+
+### Remaining platform scope
+
+Windows Credential Manager is the verified OS vault for the reference host. macOS
+Keychain and Linux Secret Service adapters remain platform follow-ups; those platforms
+currently use the process-memory fallback. The application server/UI has not yet wired
+runtime settings into this adapter; the server integration and user-facing connection
+settings belong to later application/UI phases.

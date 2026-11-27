@@ -101,30 +101,38 @@ cross-origin Origin rejection, CSRF, occupied ports, static fallback, and shutdo
 
 Articles: I, II, III, IV, V, VI, VIII.
 
-- [ ] T022 [P] Write OpenCodeGateway contract tests for health, project discovery,
+- [x] T022 [P] Write OpenCodeGateway contract tests for health, project discovery,
   session create, prompt, follow-up, interrupt, permissions/forms, and session reads.
-- [ ] T023 [P] Write event-stream tests for disconnect, missed events, reconnect,
+- [x] T023 [P] Write event-stream tests for disconnect, missed events, reconnect,
   resubscription, and mandatory session reconciliation.
-- [ ] T024 Implement the OpenCode HTTP client wrapper using `@opencode/client`; keep all
+- [x] T024 Implement the OpenCode HTTP client wrapper using `@opencode/client`; keep all
   imports and request mapping inside `src/adapters/opencode/`.
-- [ ] T025 Implement the managed-server process adapter using the documented
+- [x] T025 Implement the managed-server process adapter using the documented
   `@opencode/client/service` lifecycle helpers and a Foreman-specific registration file;
   monitor health/exit and stop only the exact instance Foreman owns. If ownership cannot
   be guaranteed for the pinned runtime, use a directly spawned child process instead.
-- [ ] T026 Implement external-server mode with validated endpoint configuration; never
+- [x] T026 Implement external-server mode with validated endpoint configuration; never
   stop or mutate the lifecycle of an externally managed server.
-- [ ] T027 Implement connection supervisor with startup timeout, health polling,
+- [x] T027 Implement connection supervisor with startup timeout, health polling,
   disconnected/stale states, reconnect backoff, event resubscription, and authoritative
   resync of linked sessions.
-- [ ] T028 Implement OpenCode version/capability detection and explicit unsupported
+- [x] T028 Implement OpenCode version/capability detection and explicit unsupported
   runtime reporting.
-- [ ] T029 Implement server-side secret handling through SecretStore; use an OS vault
+- [x] T029 Implement server-side secret handling through SecretStore; use an OS vault
   where available and process-session-only secrets otherwise.
-- [ ] T030 Add integration tests proving managed shutdown does not stop external servers,
+- [x] T030 Add integration tests proving managed shutdown does not stop external servers,
   and unexpected process exit does not corrupt Foreman task data.
 
 **Checkpoint**: both connection modes work through one adapter contract; disconnection
 does not crash the app or present stale execution data as live.
+
+**Implementation checkpoint (2026-11-27)**: T022-T030 are implemented. Managed
+mode uses a directly spawned, loopback-only child process because the shared service
+registration ownership contract is not accepted. External mode never stops its server.
+The supervisor reconciles linked sessions on stream loss/reconnect and distinguishes
+connected, stale, connecting, and disconnected states. Windows uses Credential Manager
+with a process-memory fallback; non-Windows platforms currently use process-memory storage
+pending Keychain/Secret Service adapters.
 
 ## Phase 4: User Story 1 — Launch and Use Foreman Independently
 
