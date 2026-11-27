@@ -8,6 +8,8 @@ import type { AttentionItem } from "../application/inbox"
 import type { AppRoute } from "./routes"
 
 type RuntimeView = { status: "connected" | "stale" | "connecting" | "disconnected"; mode?: "managed" | "external"; version?: string; reason?: string; sessionBaseUrl?: string }
+type SavedRuntimeSettings = { mode: "managed" | "external"; endpoint?: string; executable?: string; username?: string; credentialRequired: boolean; autoConnect: boolean; updatedAt: number }
+type HealthView = { status: "ok" | "degraded"; server?: { status: string; uptimeSeconds: number; nodeVersion: string }; database?: { status: string; schemaVersion: number; message?: string }; runtime?: RuntimeView }
 type Props = { route: AppRoute; csrfToken: string; onNavigate(path: AppRoute): void; onRuntimeChange(status: RuntimeView): void; onInboxCountChange(count: number): void }
 const columns: Array<{ id: TaskColumn; label: string; hint: string }> = [
   { id: "todo", label: "Todo", hint: "Ideas and upcoming work" },
@@ -87,6 +89,10 @@ export function Workspace(props: Props) {
   const [runtimeEndpoint, setRuntimeEndpoint] = createSignal("http://127.0.0.1:4096")
   const [runtimeUsername, setRuntimeUsername] = createSignal("opencode")
   const [runtimePassword, setRuntimePassword] = createSignal("")
+  const [savedRuntimeSettings, setSavedRuntimeSettings] = createSignal<SavedRuntimeSettings | undefined>()
+  const [healthInfo, setHealthInfo] = createSignal<HealthView>()
+  const [discoveredProjects, setDiscoveredProjects] = createSignal<Array<{ directory: string; name?: string }>>([])
+  const [discoveryBusy, setDiscoveryBusy] = createSignal(false)
   const [followUpText, setFollowUpText] = createSignal("")
 
   const handleEscape = (event: KeyboardEvent) => {
@@ -102,16 +108,25 @@ export function Workspace(props: Props) {
     setLoading(true)
     setError("")
     try {
-      const [taskResult, projectResult, activityResult, runtimeResult] = await Promise.all([
+      const [taskResult, projectResult, activityResult, runtimeResult, healthResult] = await Promise.all([
         request<{ tasks: Task[] }>("/api/tasks", props.csrfToken),
         request<{ projects: Project[] }>("/api/projects", props.csrfToken),
         request<{ activities: ActivityEvent[] }>("/api/activity", props.csrfToken),
-        request<{ runtime: RuntimeView }>("/api/runtime", props.csrfToken),
+        request<{ runtime: RuntimeView; settings?: SavedRuntimeSettings }>("/api/runtime", props.csrfToken),
+        request<HealthView>("/api/health", props.csrfToken),
       ])
       setTasks(taskResult.tasks)
       setProjects(projectResult.projects)
       setActivities(activityResult.activities)
       setRuntimeStatus(runtimeResult.runtime)
+      setSavedRuntimeSettings(runtimeResult.settings)
+      setHealthInfo(healthResult)
+      if (runtimeResult.settings) {
+        setRuntimeMode(runtimeResult.settings.mode)
+        setRuntimeExecutable(runtimeResult.settings.executable ?? "")
+        setRuntimeEndpoint(runtimeResult.settings.endpoint ?? "http://127.0.0.1:4096")
+        setRuntimeUsername(runtimeResult.settings.username ?? "opencode")
+      }
       props.onRuntimeChange(runtimeResult.runtime)
       if (projectFilter() && !projectResult.projects.some((project) => normalizeProjectDirectory(project.directory) === normalizeProjectDirectory(projectFilter()))) setProjectFilter("")
       if (selected()) setSelected(taskResult.tasks.find((task) => task.id === selected()!.id))
@@ -120,6 +135,39 @@ export function Workspace(props: Props) {
     } finally { setLoading(false) }
   }
   void refresh()
+
+  const refreshOperationalStatus = async () => {
+    try {
+      const [runtimeResult, healthResult] = await Promise.all([
+        request<{ runtime: RuntimeView; settings?: SavedRuntimeSettings }>("/api/runtime", props.csrfToken),
+        request<HealthView>("/api/health", props.csrfToken),
+      ])
+      setRuntimeStatus(runtimeResult.runtime); props.onRuntimeChange(runtimeResult.runtime)
+      setSavedRuntimeSettings(runtimeResult.settings); setHealthInfo(healthResult)
+    } catch { /* the shell's local-server health indicator handles server loss */ }
+  }
+  createEffect(() => {
+    if (props.route !== "/settings") return
+    void refreshOperationalStatus()
+    const interval = window.setInterval(() => void refreshOperationalStatus(), 5_000)
+    onCleanup(() => window.clearInterval(interval))
+  })
+
+  const discoverRuntimeProjects = async () => {
+    setDiscoveryBusy(true); setError("")
+    try {
+      const result = await request<{ projects: Array<{ directory: string; name?: string }> }>("/api/projects/discover", props.csrfToken)
+      setDiscoveredProjects(result.projects)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "OpenCode projects could not be discovered.") }
+    finally { setDiscoveryBusy(false) }
+  }
+  createEffect(() => { if (props.route === "/projects" && runtimeStatus().status === "connected") void discoverRuntimeProjects() })
+  const importRuntimeProject = async (directory: string) => {
+    setDiscoveryBusy(true); setError("")
+    try { await request("/api/projects/import", props.csrfToken, "POST", { directory }); await refresh(); await discoverRuntimeProjects() }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Project could not be imported.") }
+    finally { setDiscoveryBusy(false) }
+  }
 
   const loadInbox = async () => {
     try {
@@ -229,6 +277,14 @@ export function Workspace(props: Props) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "OpenCode could not be disconnected.") }
     finally { setRuntimeBusy(false) }
   }
+  const reconnectRuntime = async () => {
+    setRuntimeBusy(true); setError("")
+    try {
+      const result = await request<{ runtime: RuntimeView }>("/api/runtime/reconnect", props.csrfToken, "POST", {})
+      setRuntimeStatus(result.runtime); props.onRuntimeChange(result.runtime); await refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "OpenCode could not be reconnected.") }
+    finally { setRuntimeBusy(false) }
+  }
   const startSelected = async () => {
     const task = selected(); if (!task) return
     setRuntimeBusy(true); setError("")
@@ -301,6 +357,7 @@ export function Workspace(props: Props) {
     </Show>
 
     <Show when={!loading() && props.route === "/projects"}>
+      <Show when={runtimeStatus().status === "connected"}><section class="runtime-project-panel"><div class="section-heading"><div><h2>Discover from OpenCode</h2><p>Projects known to the connected OpenCode runtime. Importing registers a local Foreman project; it does not modify OpenCode.</p></div><button class="button button-quiet" disabled={discoveryBusy()} onClick={() => void discoverRuntimeProjects()}>{discoveryBusy() ? "Refreshing…" : "Refresh"}</button></div><Show when={discoveredProjects().length === 0}><p class="form-note">No projects were returned by OpenCode.</p></Show><For each={discoveredProjects()}>{(project) => { const registered = projects().some((item) => normalizeProjectDirectory(item.directory) === normalizeProjectDirectory(project.directory)); return <div class="discovered-project-row"><div><strong>{project.name || project.directory.split(/[\\/]/).filter(Boolean).at(-1) || project.directory}</strong><span>{project.directory}</span></div><button class="button button-quiet" disabled={registered || discoveryBusy()} onClick={() => void importRuntimeProject(project.directory)}>{registered ? "Added" : "Add to Foreman"}</button></div> }}</For></section></Show>
       <section class="project-create-panel"><form onSubmit={saveProject}><div><h2>Add a local project</h2><p>Register a project folder to use it when creating tasks.</p></div><label>Project name<input required maxlength="120" value={projectName()} onInput={(event) => setProjectName(event.currentTarget.value)} placeholder="My application"/></label><label>Absolute folder path<input required value={projectDirectory()} onInput={(event) => setProjectDirectory(event.currentTarget.value)} placeholder="C:\\work\\my-app"/></label><button class="button button-primary" type="submit" disabled={saving()}>Add project</button></form></section>
       <section class="project-list"><div class="section-heading"><div><h2>Your projects</h2><p>{projects().length} registered or task-linked projects</p></div></div><Show when={projects().length === 0}><div class="workspace-empty compact"><h2>No projects yet</h2><p>Add a local folder, or create a task and its project will be registered automatically.</p></div></Show><For each={projects()}>{(project) => <article class="project-row"><div class="project-icon">⌘</div><div class="project-row-copy"><strong>{project.name}</strong><span>{project.directory}</span></div><span class="project-task-count">{tasks().filter((task) => normalizeProjectDirectory(task.projectDirectory) === normalizeProjectDirectory(project.directory)).length} tasks</span><button class="text-button" onClick={() => { setProjectFilter(project.directory); props.onNavigate("/board") }}>View tasks →</button></article>}</For></section>
     </Show>
@@ -320,13 +377,15 @@ export function Workspace(props: Props) {
       </article>}</For></section>
     </Show>
     <Show when={!loading() && props.route === "/settings"}>
+      <section class="health-panel"><div class="section-heading"><div><p class="eyebrow">SYSTEM STATUS</p><h2>Application health</h2><p>Foreman service, local persistence and OpenCode are monitored independently.</p></div><button class="button button-quiet" onClick={() => void refreshOperationalStatus()}>Refresh status</button></div><div class="health-grid"><article class="health-card"><span class={`health-indicator ${healthInfo()?.server?.status === "ready" ? "health-good" : "health-bad"}`}/><div><strong>Foreman server</strong><span>{healthInfo()?.server?.status === "ready" ? "Running" : "Unavailable"}</span><small>{healthInfo()?.server ? `Node ${healthInfo()!.server!.nodeVersion} · uptime ${healthInfo()!.server!.uptimeSeconds}s` : "Status unavailable"}</small></div></article><article class="health-card"><span class={`health-indicator ${healthInfo()?.database?.status === "ready" ? "health-good" : "health-bad"}`}/><div><strong>SQLite database</strong><span>{healthInfo()?.database?.status === "ready" ? "Healthy" : "Degraded"}</span><small>{healthInfo()?.database ? `Schema v${healthInfo()!.database!.schemaVersion}` : "Status unavailable"}{healthInfo()?.database?.message ? ` · ${healthInfo()!.database!.message}` : ""}</small></div></article><article class="health-card"><span class={`health-indicator ${runtimeStatus().status === "connected" ? "health-good" : runtimeStatus().status === "stale" ? "health-warn" : "health-muted"}`}/><div><strong>OpenCode runtime</strong><span>{runtimeStatus().status === "connected" ? `Connected · ${runtimeStatus().version ?? "2.4.x"}` : runtimeStatus().status === "stale" ? "Connection stale" : runtimeStatus().status}</span><small>{runtimeStatus().mode ? `${runtimeStatus().mode} mode` : "Independent of Foreman app health"}{runtimeStatus().reason ? ` · ${runtimeStatus().reason}` : ""}</small></div></article></div></section>
       <section class="runtime-settings-panel">
-        <div class="section-heading"><div><p class="eyebrow">OPENCODE RUNTIME</p><h2>{runtimeStatus().status === "connected" ? "Runtime connected" : "Connect a runtime"}</h2><p>{runtimeStatus().status === "connected" ? `OpenCode ${runtimeStatus().version ?? "2.4.x"} · ${runtimeStatus().mode ?? "runtime"} mode` : "Foreman requires an OpenCode 2.4.x server. Your global CLI is not modified."}</p></div><Show when={runtimeStatus().status === "connected"}><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void disconnectRuntime()}>Disconnect</button></Show></div>
+        <div class="section-heading"><div><p class="eyebrow">OPENCODE RUNTIME</p><h2>{runtimeStatus().status === "connected" ? "Runtime connected" : "Connect a runtime"}</h2><p>{runtimeStatus().status === "connected" ? `OpenCode ${runtimeStatus().version ?? "2.4.x"} · ${runtimeStatus().mode ?? "runtime"} mode` : "Foreman requires an OpenCode 2.4.x server. Your global CLI is not modified."}</p></div><div class="runtime-header-actions"><Show when={runtimeStatus().status === "connected"}><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void disconnectRuntime()}>Disconnect</button></Show><Show when={runtimeStatus().status !== "connected" && savedRuntimeSettings()}><button class="button button-primary" disabled={runtimeBusy() || savedRuntimeSettings()!.credentialRequired} onClick={() => void reconnectRuntime()}>{runtimeBusy() ? "Reconnecting…" : "Reconnect saved runtime"}</button></Show></div></div>
+        <Show when={savedRuntimeSettings()}><div class="saved-runtime-note"><strong>Saved connection</strong><span>{savedRuntimeSettings()!.mode === "managed" ? `Managed · ${savedRuntimeSettings()!.executable || "opencode on PATH"}` : `External · ${savedRuntimeSettings()!.endpoint}`}</span><small>{savedRuntimeSettings()!.autoConnect ? "Automatically reconnects when Foreman starts." : "Auto-connect is off. Use Reconnect to start this saved configuration."}{savedRuntimeSettings()!.credentialRequired ? " Password is not persisted; enter it again to reconnect." : ""}</small></div></Show>
         <Show when={runtimeStatus().status !== "connected"}>
           <form class="runtime-connect-form" onSubmit={connectRuntime}>
             <label>Connection mode<select value={runtimeMode()} onChange={(event) => setRuntimeMode(event.currentTarget.value as "managed" | "external")}><option value="managed">Managed · Foreman starts OpenCode</option><option value="external">External · connect to an existing server</option></select></label>
             <Show when={runtimeMode() === "managed"}><label>OpenCode executable path (optional)<input value={runtimeExecutable()} onInput={(event) => setRuntimeExecutable(event.currentTarget.value)} placeholder="opencode or absolute path to 2.4.x binary"/><span class="form-note">The default executable on PATH must report version 2.4.x. Foreman will only stop the process it starts.</span></label></Show>
-            <Show when={runtimeMode() === "external"}><label>Server endpoint<input required type="url" value={runtimeEndpoint()} onInput={(event) => setRuntimeEndpoint(event.currentTarget.value)} placeholder="http://127.0.0.1:4096"/></label><label>Username<input value={runtimeUsername()} onInput={(event) => setRuntimeUsername(event.currentTarget.value)}/></label><label>Password<input type="password" autocomplete="off" value={runtimePassword()} onInput={(event) => setRuntimePassword(event.currentTarget.value)} placeholder="Optional · held in memory only"/></label></Show>
+            <Show when={runtimeMode() === "external"}><label>Server endpoint<input required type="url" value={runtimeEndpoint()} onInput={(event) => setRuntimeEndpoint(event.currentTarget.value)} placeholder="http://127.0.0.1:4096"/></label><label>Username<input value={runtimeUsername()} onInput={(event) => setRuntimeUsername(event.currentTarget.value)}/></label><label>Password<input type="password" autocomplete="off" value={runtimePassword()} onInput={(event) => setRuntimePassword(event.currentTarget.value)} placeholder="Optional · never stored in SQLite"/><span class="form-note">Credentials are stored only in the OS vault when supported. Otherwise, Foreman asks for the password again after restart.</span></label></Show>
             <button class="button button-primary" type="submit" disabled={runtimeBusy()}>{runtimeBusy() ? "Connecting…" : "Connect OpenCode"}</button>
           </form>
         </Show>

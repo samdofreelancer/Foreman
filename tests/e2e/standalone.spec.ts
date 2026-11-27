@@ -7,7 +7,7 @@ test("launches independently and renders the Board without OpenCode", async ({ p
   await expect(page.getByText("OpenCode disconnected").first()).toBeVisible()
   await expect(page.getByText("Local app running")).toBeVisible()
   const health = await page.request.get("/api/health")
-  expect(await health.json()).toMatchObject({ status: "ok", database: { status: "ready", schemaVersion: 2 } })
+  expect(await health.json()).toMatchObject({ status: "ok", server: { status: "ready" }, database: { status: "ready", schemaVersion: 3 }, runtime: { status: "disconnected" } })
   await expect(page.getByText("Plan and track work by task, not by chat session.")).toBeVisible()
 })
 
@@ -265,4 +265,41 @@ test("shows Inbox permissions and questions and sends only explicit human respon
   await expect(page.getByRole("heading", { name: "Nothing needs your attention" })).toBeVisible()
   expect(permissionResolved).toBe(true)
   expect(questionAnswered).toBe(true)
+})
+
+test("shows independent Foreman, SQLite and OpenCode health on Settings", async ({ page }) => {
+  await page.route("**/api/runtime", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    runtime: { status: "stale", mode: "external", version: "2.4.2", reason: "connection reset" },
+    settings: { mode: "external", endpoint: "https://opencode.example.test", username: "dev", credentialRequired: true, autoConnect: false, updatedAt: 1 },
+  }) }))
+  await page.route("**/api/health", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    status: "ok", server: { status: "ready", uptimeSeconds: 120, nodeVersion: "v22.23.5" },
+    database: { status: "ready", schemaVersion: 3 }, runtime: { status: "stale", mode: "external", version: "2.4.2" },
+  }) }))
+  await page.goto("/settings")
+  await expect(page.getByRole("heading", { name: "Application health" })).toBeVisible()
+  await expect(page.getByText("Foreman server")).toBeVisible()
+  await expect(page.getByText("SQLite database")).toBeVisible()
+  await expect(page.getByText("OpenCode runtime", { exact: true })).toBeVisible()
+  await expect(page.getByText("Connection stale")).toBeVisible()
+  await expect(page.getByText(/Password is not persisted/)).toBeVisible()
+  await expect(page.getByRole("button", { name: "Reconnect saved runtime" })).toBeDisabled()
+})
+
+test("discovers connected OpenCode projects and imports them without removing manual project entry", async ({ page }) => {
+  let imported = false
+  await page.route("**/api/runtime", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ runtime: { status: "connected", mode: "external", version: "2.4.2" } }) }))
+  await page.route("**/api/projects", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: imported ? [{ id: "project-alpha", name: "Alpha", directory: "C:\\work\\alpha", createdAt: 1, updatedAt: 1 }] : [] }) }))
+  await page.route("**/api/projects/discover", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: [{ directory: "C:\\work\\alpha", name: "Alpha" }] }) }))
+  await page.route("**/api/projects/import", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ directory: "C:\\work\\alpha" })
+    imported = true
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ imported: true, project: { id: "project-alpha", name: "Alpha", directory: "C:\\work\\alpha", createdAt: 1, updatedAt: 1 } }) })
+  })
+  await page.goto("/projects")
+  await expect(page.getByRole("heading", { name: "Discover from OpenCode" })).toBeVisible()
+  await expect(page.getByText("C:\\work\\alpha")).toBeVisible()
+  await page.getByRole("button", { name: "Add to Foreman" }).click()
+  await expect(page.getByRole("button", { name: "Added" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Add a local project" })).toBeVisible()
 })

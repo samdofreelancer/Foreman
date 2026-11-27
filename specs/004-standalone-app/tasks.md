@@ -172,7 +172,7 @@ Articles: I, III, IV, V, VI, VII, IX.
   empty/loading/error states in the standalone UI.
 - [x] T038 Build task create/edit/detail surfaces; preserve project, agent/model, and
   task intent fields without exposing runtime-only controls on unlinked tasks.
-- [ ] T039 Implement project discovery through OpenCode when connected plus local/manual
+- [x] T039 Implement project discovery through OpenCode when connected plus local/manual
   project selection when disconnected.
 - [x] T040 Implement Projects and Activity views backed only by Foreman-owned SQLite
   records; ensure activity entries are safe and do not contain transcript content.
@@ -192,10 +192,8 @@ columns, project filter, title search, task cards, keyboard-openable detail, cre
 delete confirmation, and status controls. Projects and Activity are SQLite-backed.
 Ready is a stored state only; it never starts an OpenCode session. Manual transitions into
 or out of Doing are rejected because that column is runtime-controlled. T039's local/manual
-project selection is implemented; live OpenCode project discovery is deferred until the
-runtime connection can be configured through the Phase 8 settings surface. Phase 5 is
-therefore functionally complete for disconnected task management, with connected project
-discovery remaining an explicit integration follow-up.
+project selection and connected OpenCode project discovery/import are implemented; the
+connected flow is documented and verified in the Phase 8 checkpoint below.
 
 ## Phase 6: User Story 3 — Explicit OpenCode Execution
 
@@ -288,15 +286,31 @@ content is persisted by Inbox.
 
 Articles: I, IV, V, VII, VIII, X.
 
-- [ ] T055 Build connection settings for managed/external mode, endpoint validation,
+- [x] T055 Build connection settings for managed/external mode, endpoint validation,
   connect/disconnect, and clear process/connection health status.
-- [ ] T056 Build application health surface for server, SQLite, and OpenCode runtime
+- [x] T056 Build application health surface for server, SQLite, and OpenCode runtime
   independently; distinguish app health from execution state.
-- [ ] T057 Add tests for invalid endpoint, wrong OpenCode version, stopped managed child,
+- [x] T057 Add tests for invalid endpoint, wrong OpenCode version, stopped managed child,
   external server loss, reconnect, and unavailable local database.
 
 **Independent Test**: launch with no runtime, connect, disconnect, and reconnect while
 the Board remains usable and runtime state is labelled accurately.
+
+**Implementation checkpoint (2026-11-27)**: T055-T057 implemented and verified. SQLite
+schema v3 persists only non-secret runtime metadata (mode, endpoint, executable, username,
+vault reference, credential-required and auto-connect flags); passwords are never stored
+in SQLite or returned by `/api/runtime`. Windows OS-vault references may be reused after
+restart. When credentials are only process-memory-backed, Foreman records that re-entry
+is required and does not auto-connect. Explicit Disconnect disables auto-connect, while
+normal application shutdown stops owned runtime resources without changing the saved
+auto-connect preference. Startup restore/reconnect remains fail-closed and reconciles
+linked sessions before reporting a healthy connection.
+
+Settings now exposes independent Foreman server, SQLite, and OpenCode health; managed and
+external connection controls; saved configuration and reconnect state; and clear
+credential re-entry guidance. Projects can be discovered from a connected OpenCode 2.4.x
+runtime and explicitly imported into Foreman; import revalidates the directory against
+the current runtime project list. Manual project registration remains available offline.
 
 ## Phase 9: Backup, Restore, and Data Safety
 

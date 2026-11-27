@@ -27,7 +27,7 @@ describe("standalone CLI runtime", () => {
     expect(new URL(runtime.url).hostname).toBe("127.0.0.1")
     const response = await fetch(`${runtime.url}/api/health`)
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ status: "ok", database: { status: "ready", schemaVersion: 2 } })
+    expect(await response.json()).toMatchObject({ status: "ok", server: { status: "ready" }, database: { status: "ready", schemaVersion: 3 }, runtime: { status: "disconnected" } })
   })
 
   it("validates configured ports instead of silently coercing invalid values", () => {

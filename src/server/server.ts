@@ -200,7 +200,7 @@ function registerWorkspaceApi(
     } catch (error) { return fail(reply, 409, "QUESTION_REPLY_REJECTED", error instanceof Error ? error.message : "Question could not be answered.") }
   })
 
-  app.get("/api/runtime", async () => ({ runtime: runtime?.status ?? { status: "disconnected" } }))
+  app.get("/api/runtime", async () => ({ runtime: runtime?.status ?? { status: "disconnected" }, settings: runtime?.settings }))
   app.post("/api/runtime/connect", async (request, reply) => {
     if (!runtime) return fail(reply, 503, "RUNTIME_UNAVAILABLE", "Runtime connection is not configured in this Foreman process.")
     if (!record(request.body)) return fail(reply, 400, "INVALID_RUNTIME_CONFIG", "Runtime connection settings are required.")
@@ -224,6 +224,11 @@ function registerWorkspaceApi(
     if (!runtime) return fail(reply, 503, "RUNTIME_UNAVAILABLE", "Runtime connection is not configured.")
     await runtime.disconnect()
     return reply.code(200).send({ runtime: runtime.status })
+  })
+  app.post("/api/runtime/reconnect", async (_request, reply) => {
+    if (!runtime) return fail(reply, 503, "RUNTIME_UNAVAILABLE", "Runtime connection is not configured.")
+    try { return { runtime: await runtime.reconnect() } }
+    catch (error) { return fail(reply, 409, "RUNTIME_RECONNECT_FAILED", error instanceof Error ? error.message.slice(0, 240) : "OpenCode could not be reconnected.") }
   })
 
   if (execution) {
@@ -348,6 +353,32 @@ function registerWorkspaceApi(
       if (!known.has(key)) known.set(key, { id: `local:${key}`, name: task.projectName || basename(task.projectDirectory), directory: task.projectDirectory, createdAt: task.createdAt, updatedAt: task.updatedAt })
     }
     return { projects: [...known.values()].sort((a, b) => a.name.localeCompare(b.name)) }
+  })
+  app.get("/api/projects/discover", async (_request, reply) => {
+    const gateway = runtime?.activeGateway
+    if (!gateway) return fail(reply, 409, "RUNTIME_NOT_CONNECTED", "Connect a healthy OpenCode 2.4.x runtime to discover its projects.")
+    try { return { projects: await gateway.listProjects() } }
+    catch (error) { return fail(reply, 503, "PROJECT_DISCOVERY_FAILED", error instanceof Error ? error.message.slice(0, 240) : "OpenCode projects could not be discovered.") }
+  })
+  app.post("/api/projects/import", async (request, reply) => {
+    if (!record(request.body) || typeof request.body.directory !== "string") return fail(reply, 400, "INVALID_PROJECT", "Choose a project discovered from OpenCode.")
+    const requestedDirectory = request.body.directory
+    const gateway = runtime?.activeGateway
+    if (!gateway) return fail(reply, 409, "RUNTIME_NOT_CONNECTED", "Connect OpenCode before importing a discovered project.")
+    try {
+      const discovered = await gateway.listProjects()
+      const match = discovered.find((project) => project.directory === requestedDirectory)
+      if (!match) return fail(reply, 404, "RUNTIME_PROJECT_NOT_FOUND", "This project is no longer available from OpenCode. Refresh discovery.")
+      const existing = projects.getByDirectory(match.directory)
+      if (existing) return { project: existing, imported: false }
+      const project = transaction(() => {
+        const created = createProject({ name: match.name || basename(match.directory), directory: match.directory }, Date.now(), randomUUID())
+        projects.create(created)
+        appendActivity("project.imported-from-opencode", `Imported OpenCode project: ${created.name}`, undefined, created.id)
+        return created
+      })
+      return reply.code(201).send({ project, imported: true })
+    } catch (error) { return fail(reply, 400, "PROJECT_IMPORT_FAILED", error instanceof Error ? error.message.slice(0, 240) : "Project could not be imported.") }
   })
   app.post("/api/projects", async (request, reply) => {
     if (!record(request.body) || typeof request.body.name !== "string" || typeof request.body.directory !== "string") {

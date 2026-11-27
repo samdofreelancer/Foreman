@@ -34,3 +34,19 @@ export interface ActivityRepository {
 export interface TransactionRunner {
   transaction<T>(operation: () => T): T
 }
+
+export type RuntimeConnectionSettings = {
+  mode: "managed" | "external"
+  endpoint?: string
+  executable?: string
+  username?: string
+  secretRef?: string
+  credentialRequired: boolean
+  autoConnect: boolean
+  updatedAt: number
+}
+
+export interface RuntimeSettingsRepository {
+  get(): RuntimeConnectionSettings | undefined
+  save(settings: RuntimeConnectionSettings): void
+}

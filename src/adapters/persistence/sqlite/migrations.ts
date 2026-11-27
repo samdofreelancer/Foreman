@@ -79,4 +79,24 @@ export const migrations: Migration[] = [
       `)
     },
   },
+  {
+    version: 3,
+    name: "runtime-connection-settings",
+    up(database) {
+      database.exec(`
+        CREATE TABLE runtime_connection_settings (
+          id INTEGER PRIMARY KEY CHECK(id = 1),
+          mode TEXT NOT NULL CHECK(mode IN ('managed', 'external')),
+          endpoint TEXT,
+          executable TEXT,
+          username TEXT,
+          secret_ref TEXT,
+          credential_required INTEGER NOT NULL DEFAULT 0 CHECK(credential_required IN (0, 1)),
+          auto_connect INTEGER NOT NULL DEFAULT 0 CHECK(auto_connect IN (0, 1)),
+          updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+          CHECK((mode = 'managed' AND endpoint IS NULL) OR (mode = 'external' AND endpoint IS NOT NULL))
+        );
+      `)
+    },
+  },
 ]

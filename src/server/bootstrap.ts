@@ -5,12 +5,16 @@ import { SqliteDatabase } from "../adapters/persistence/sqlite/database"
 import { SqliteTaskRepository } from "../adapters/persistence/sqlite/task-repository"
 import { SqliteProjectRepository } from "../adapters/persistence/sqlite/project-repository"
 import { SqliteActivityRepository } from "../adapters/persistence/sqlite/activity-repository"
+import { SqliteRuntimeSettingsRepository } from "../adapters/persistence/sqlite/runtime-settings-repository"
+import { ForemanBackupManager } from "../application/backup-manager"
 
 export type ForemanBootstrap = {
   databasePath: string
   tasks?: SqliteTaskRepository
   projects?: SqliteProjectRepository
   activities?: SqliteActivityRepository
+  runtimeSettings?: SqliteRuntimeSettingsRepository
+  backup?: ForemanBackupManager
   transaction<T>(operation: () => T): T
   health(): { status: "ready" | "degraded"; schemaVersion: number; message?: string }
   close(): void
@@ -40,12 +44,15 @@ export function initializeForeman(options: { dataDirectory?: string } = {}): For
   } catch {
     failureMessage = "Foreman could not safely open its local database. The original data has not been deleted. Close Foreman and restore a valid backup, or choose a new data directory."
   }
+  const backup = database ? new ForemanBackupManager(database) : undefined
 
   return {
     databasePath,
     tasks: database ? new SqliteTaskRepository(database) : undefined,
     projects: database ? new SqliteProjectRepository(database) : undefined,
     activities: database ? new SqliteActivityRepository(database) : undefined,
+    runtimeSettings: database ? new SqliteRuntimeSettingsRepository(database) : undefined,
+    backup,
     transaction: <T>(operation: () => T) => {
       if (!database) throw new Error("Foreman database is unavailable")
       return database.transaction(operation)
@@ -53,6 +60,6 @@ export function initializeForeman(options: { dataDirectory?: string } = {}): For
     health: () => database
       ? { status: "ready", schemaVersion: database.schemaVersion() }
       : { status: "degraded", schemaVersion: 0, message: failureMessage },
-    close: () => database?.close(),
+    close: () => { backup?.close(); database?.close() },
   }
 }

@@ -9,6 +9,7 @@ import { DatabaseStartupError, SqliteDatabase } from "../src/adapters/persistenc
 import { SqliteTaskRepository } from "../src/adapters/persistence/sqlite/task-repository"
 import { SqliteProjectRepository } from "../src/adapters/persistence/sqlite/project-repository"
 import { SqliteActivityRepository } from "../src/adapters/persistence/sqlite/activity-repository"
+import { SqliteRuntimeSettingsRepository } from "../src/adapters/persistence/sqlite/runtime-settings-repository"
 import { createActivityEvent } from "../src/domain/activity"
 
 const directories: string[] = []
@@ -40,7 +41,7 @@ describe("SQLite persistence", () => {
     tasks.create(task)
     activities.append(activity)
 
-    expect(db.schemaVersion()).toBe(2)
+    expect(db.schemaVersion()).toBe(3)
     expect(projects.getById(project.id)).toEqual(project)
     expect(tasks.getById(task.id)).toEqual(task)
     expect(activities.listForTask(task.id)).toEqual([activity])
@@ -69,6 +70,17 @@ describe("SQLite persistence", () => {
     expect(projects.delete(project.id)).toBe(true)
     expect(tasks.delete(task.id)).toBe(false)
     db.close()
+  })
+
+  it("persists non-secret runtime connection settings without writing credentials to SQLite", () => {
+    const db = database()
+    const settings = new SqliteRuntimeSettingsRepository(db)
+    settings.save({ mode: "external", endpoint: "https://opencode.example.test", username: "sam", secretRef: "runtime-vault-ref", credentialRequired: false, autoConnect: true, updatedAt: 42 })
+    expect(settings.get()).toEqual({ mode: "external", endpoint: "https://opencode.example.test", username: "sam", secretRef: "runtime-vault-ref", credentialRequired: false, autoConnect: true, updatedAt: 42 })
+    const raw = db.connection.prepare("SELECT * FROM runtime_connection_settings").get() as Record<string, unknown>
+    expect(JSON.stringify(raw)).not.toContain("actual-password")
+    settings.save({ mode: "managed", executable: "C:/tools/opencode-2.4.2.exe", credentialRequired: false, autoConnect: false, updatedAt: 43 })
+    expect(settings.get()).toMatchObject({ mode: "managed", executable: "C:/tools/opencode-2.4.2.exe", autoConnect: false })
   })
 
   it("enforces a unique session id across tasks and immutable task session links", async () => {
@@ -183,11 +195,11 @@ describe("SQLite persistence", () => {
   it("opens a migrated database in read-only mode without changing its schema", () => {
     const db = database()
     const path = db.path
-    expect(db.schemaVersion()).toBe(2)
+    expect(db.schemaVersion()).toBe(3)
     db.close()
     const readOnly = new SqliteDatabase(path, { readonly: true })
     databases.push(readOnly)
-    expect(readOnly.health()).toEqual({ status: "ready", schemaVersion: 2 })
+    expect(readOnly.health()).toEqual({ status: "ready", schemaVersion: 3 })
     expect(() => readOnly.transaction(() => 1)).toThrow()
     readOnly.close()
   })

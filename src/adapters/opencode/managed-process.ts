@@ -32,7 +32,11 @@ export class ManagedOpenCodeProcess {
     const deadline = Date.now() + (options.startupTimeoutMs ?? 20_000)
     while (Date.now() < deadline) {
       if (child.exitCode !== null) throw new Error(`Managed OpenCode exited during startup (code ${child.exitCode})`)
-      try { if (await options.healthCheck(endpoint)) return endpoint } catch { /* not ready */ }
+      try { if (await options.healthCheck(endpoint)) return endpoint }
+      catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "UNSUPPORTED_RUNTIME_VERSION") throw error
+        // Other failures are expected while the child is still starting.
+      }
       await new Promise((resolve) => setTimeout(resolve, 200))
     }
     await this.stop()

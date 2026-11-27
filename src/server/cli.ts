@@ -44,7 +44,8 @@ export async function startForemanCli(options: ForemanCliOptions = {}): Promise<
       gateway: () => runtimeController?.activeGateway,
     })
     : undefined
-  if (bootstrap.tasks && execution) runtimeController = new ForemanRuntimeController(bootstrap.tasks, execution)
+  if (bootstrap.tasks && execution) runtimeController = new ForemanRuntimeController(bootstrap.tasks, execution, { settings: bootstrap.runtimeSettings })
+  await runtimeController?.restore()
   let runtime: ForemanLoopbackServers
   try {
     runtime = await startForemanLoopback({
@@ -58,7 +59,12 @@ export async function startForemanCli(options: ForemanCliOptions = {}): Promise<
       staticRoot: options.staticRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../dist/client"),
       health: () => {
         const database = bootstrap.health()
-        return { status: database.status === "ready" ? "ok" : "degraded", database }
+        return {
+          status: database.status === "ready" ? "ok" : "degraded",
+          server: { status: "ready", uptimeSeconds: Math.floor(process.uptime()), nodeVersion: process.version },
+          database,
+          runtime: runtimeController?.status ?? { status: "disconnected" },
+        }
       },
     })
   } catch (error) {

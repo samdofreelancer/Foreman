@@ -237,6 +237,55 @@ No OpenCode process, service, endpoint, credential, or database was used during 
 | Production preview smoke | Pass | Fresh isolated preview on `127.0.0.1:4324`: `/board`, `/api/health`, `/api/session`, `/api/runtime`, `/api/tasks`, `/api/projects`, and `/api/activity` all returned HTTP 200. SQLite reported ready, schema version 2; runtime correctly reported disconnected by default. Preview PID 22584 was retained. |
 | `git diff --check` | Pass | No whitespace errors; only expected Windows LF→CRLF warnings. |
 
+## 2026-11-27 — Phase 8: Connection and Application Health
+
+### Implementation
+
+- Added SQLite migration v3 and `SqliteRuntimeSettingsRepository`. The database stores
+  connection mode, endpoint, executable path, username, optional OS-vault reference,
+  credential-required flag, auto-connect preference, and update timestamp. Passwords are
+  never stored in SQLite or returned by the runtime settings API.
+- Wired `ForemanRuntimeController` to persisted settings and the platform secret store.
+  Startup restores only configurations that are safe to reconnect without a missing
+  secret. Windows Credential Manager references can be reused; process-memory-only
+  credentials require the user to enter the password again after restart.
+- Explicit Disconnect disables auto-connect but preserves the saved configuration.
+  Application shutdown now stops the active supervisor/managed child while preserving the
+  user's auto-connect preference. A regression test reproduced the previous bug where
+  shutdown accidentally disabled auto-connect, then verified the corrected lifecycle.
+- Added explicit reconnect and startup restore paths. A restored connection must pass the
+  OpenCode 2.4.x health/authentication checks and reconcile linked sessions before it is
+  exposed as connected. Unsupported managed runtime versions fail startup rather than
+  being treated as a transient health failure.
+- Expanded `/api/health` with independent Foreman server, SQLite and OpenCode runtime
+  status. The top-level app health is degraded by local database failure, not merely
+  because OpenCode is intentionally disconnected. Settings displays these three health
+  dimensions independently.
+- Added connected OpenCode project discovery and explicit project import endpoints/UI.
+  Import re-queries the runtime and accepts only a directory currently advertised by
+  OpenCode; offline/manual project registration remains available.
+
+### Verification
+
+| Check | Result | Notes |
+|---|---|---|
+| Full Vitest suite | Pass | 26 test files, **155/155 tests passed**. Includes schema v3 persistence, secret exclusion and OS-vault reference redaction, managed/external ownership, auto-connect restore, explicit disconnect, shutdown preference preservation, unsupported version handling and project discovery/import API. |
+| Playwright E2E | Pass | **27 passed, 1 skipped** across desktop Chromium (1440px) and mobile Chromium (390px). Covers independent health cards, saved credential re-entry state, runtime project discovery/import and offline manual project registration. |
+| TypeScript typecheck | Pass | `npm run typecheck`. |
+| Architecture checks | Pass | `npm run check:architecture`; 4/4 architecture boundary tests. |
+| Production build | Pass | `npm run build`; standalone client, Node server and quarantined plugin-reference bundle. |
+| `git diff --check` | Pass | No whitespace errors; expected Windows LF→CRLF warnings only. |
+
+### Runtime boundary
+
+Controller lifecycle and settings persistence tests use deterministic OpenCode gateway and
+secret-store fakes; project discovery UI E2E stubs the runtime API. No prompt was sent to a
+real user OpenCode runtime and no provider inference was triggered during Phase 8. The
+actual OpenCode 2.4.2 SDK/server integration smoke remains the Phase 3 evidence recorded
+above. macOS Keychain and Linux Secret Service implementations remain platform follow-ups;
+those platforms currently use process-memory secret storage and therefore require
+credential re-entry after restart.
+
 ### Runtime boundary and remaining scope
 
 No prompt was sent to a live user runtime and no model/provider inference was triggered

@@ -1,4 +1,7 @@
 import Database from "better-sqlite3"
+import { copyFileSync, existsSync, renameSync, rmSync } from "node:fs"
+import { basename, dirname, join } from "node:path"
+import { randomUUID } from "node:crypto"
 import type { TransactionRunner } from "../../../application/ports/repositories"
 import { migrations } from "./migrations"
 
@@ -17,7 +20,7 @@ export class DatabaseStartupError extends Error {
 }
 
 export class SqliteDatabase implements TransactionRunner {
-  readonly connection!: Database.Database
+  connection!: Database.Database
   private closed = false
   private readonly readOnly: boolean
 
@@ -67,6 +70,43 @@ export class SqliteDatabase implements TransactionRunner {
     if (this.closed) return
     this.connection.close()
     this.closed = true
+  }
+
+  /** Replace the live database with a validated SQLite file and retain the old file for rollback. */
+  replaceFromFile(stagedPath: string): string {
+    this.assertOpen()
+    if (this.readOnly) throw new Error("Database is in read-only mode")
+    const rollbackPath = join(dirname(this.path), `${basename(this.path)}.rollback-${Date.now()}-${randomUUID()}`)
+    const stagedCopy = join(dirname(this.path), `${basename(this.path)}.restore-${randomUUID()}.sqlite`)
+    copyFileSync(stagedPath, stagedCopy)
+    this.connection.pragma("wal_checkpoint(TRUNCATE)")
+    this.connection.close()
+    this.closed = true
+    try {
+      renameSync(this.path, rollbackPath)
+      renameSync(stagedCopy, this.path)
+      this.openConnection()
+      this.assertIntegrity()
+      if (this.schemaVersion() !== migrations.at(-1)?.version) throw new Error("Restored database schema changed during activation")
+      return rollbackPath
+    } catch (error) {
+      try { this.connection?.close() } catch { /* best effort before rollback */ }
+      try { if (existsSync(this.path)) rmSync(this.path, { force: true }) } catch { /* preserve rollback attempt */ }
+      try { if (existsSync(rollbackPath)) renameSync(rollbackPath, this.path) } catch { /* surfaced below */ }
+      this.closed = true
+      this.openConnection()
+      throw error
+    } finally {
+      if (existsSync(stagedCopy)) rmSync(stagedCopy, { force: true })
+    }
+  }
+
+  private openConnection() {
+    this.connection = new Database(this.path)
+    this.connection.pragma("busy_timeout = 5000")
+    this.connection.pragma("foreign_keys = ON")
+    this.connection.pragma("journal_mode = WAL")
+    this.closed = false
   }
 
   private applyMigrations() {

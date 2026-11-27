@@ -24,7 +24,7 @@ describe("standalone application bootstrap", () => {
     const directory = join(temporaryDirectory(), "nested", "data")
     const app = initializeForeman({ dataDirectory: directory })
     expect(app.databasePath).toBe(join(directory, "foreman.sqlite"))
-    expect(app.health()).toEqual({ status: "ready", schemaVersion: 2 })
+    expect(app.health()).toEqual({ status: "ready", schemaVersion: 3 })
     app.close()
   })
 

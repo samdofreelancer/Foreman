@@ -124,6 +124,22 @@ describe("standalone workspace API", () => {
     expect(runtime.disconnect).toHaveBeenCalledTimes(1)
   })
 
+  it("discovers projects from a connected runtime and imports only a currently advertised directory", async () => {
+    const gateway = { listProjects: vi.fn(async () => [
+      { directory: "/work/alpha", name: "Alpha" }, { directory: "/work/beta", name: "Beta" },
+    ]) }
+    const runtime = { get status() { return { status: "connected", version: "2.4.2", mode: "external" } }, get activeGateway() { return gateway }, close: vi.fn(async () => undefined) }
+    const { request } = await workspace({ runtime })
+    expect(await (await request("/api/projects/discover")).json()).toEqual({ projects: [
+      { directory: "/work/alpha", name: "Alpha" }, { directory: "/work/beta", name: "Beta" },
+    ] })
+    const imported = await request("/api/projects/import", "POST", { directory: "/work/alpha" })
+    expect(imported.status).toBe(201)
+    expect(await imported.json()).toMatchObject({ imported: true, project: { name: "Alpha", directory: "/work/alpha" } })
+    expect((await request("/api/projects/import", "POST", { directory: "/work/not-advertised" })).status).toBe(404)
+    expect((await request("/api/projects/import", "POST", { directory: "/work/alpha" })).status).toBe(200)
+  })
+
   it("requires explicit user confirmation before clearing an uncertain start claim", async () => {
     const { request, tasks } = await workspace()
     const created = await request("/api/tasks", "POST", { title: "Recover start", projectDirectory: "/work/recover" })

@@ -4,6 +4,7 @@ import { spawn } from "node:child_process"
 /** Process-lifetime fallback. Secrets are intentionally never written to SQLite or browser storage. */
 export class MemorySecretStore implements SecretStore {
   private readonly values = new Map<string, string>()
+  get storageMode() { return "process-memory" as const }
   async get(key: string) { return this.values.get(key) }
   async set(key: string, value: string) { this.values.set(key, value) }
   async delete(key: string) { this.values.delete(key) }
@@ -14,6 +15,7 @@ type PowerShellRunner = (input: string) => Promise<string>
 
 /** Windows Credential Manager adapter. Secret material is sent over stdin, never argv. */
 export class WindowsCredentialStore implements SecretStore {
+  get storageMode() { return "os-vault" as const }
   constructor(private readonly run: PowerShellRunner = runPowerShell) {}
 
   async get(key: string): Promise<string | undefined> {
@@ -60,7 +62,7 @@ export class FallbackSecretStore implements SecretStore {
   }
 }
 
-export function createDefaultSecretStore(): SecretStore {
+export function createDefaultSecretStore(): SecretStore & { readonly storageMode: string } {
   return process.platform === "win32"
     ? new FallbackSecretStore(new WindowsCredentialStore(), new MemorySecretStore())
     : new MemorySecretStore()

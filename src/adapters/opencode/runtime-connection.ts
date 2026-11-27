@@ -49,7 +49,11 @@ export class RuntimeConnection {
         executable: config.executable,
         healthCheck: async (url) => {
           const candidate = this.createGateway(url, password, username)
-          if (!(await candidate.health()).connected) return false
+          const health = await candidate.health()
+          if (health.version && !/^2\.4\./.test(health.version)) {
+            throw Object.assign(new Error(`OpenCode ${health.version} is not supported; Foreman requires 2.4.x`), { code: "UNSUPPORTED_RUNTIME_VERSION" })
+          }
+          if (!health.connected) return false
           await candidate.listProjects() // also verifies configured server authentication
           return true
         },
