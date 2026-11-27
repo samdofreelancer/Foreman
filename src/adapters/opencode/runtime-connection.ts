@@ -1,12 +1,13 @@
 import type { OpenCodeGateway } from "../../application/ports/opencode-gateway"
 import type { SecretStore } from "../../application/ports/secret-store"
+import { randomBytes } from "node:crypto"
 import { createOpenCodeClient, OpenCodeGatewayAdapter, validateOpenCodeEndpoint } from "./gateway"
 import { ManagedOpenCodeProcess } from "./managed-process"
 
 export type ExternalConnection = { mode: "external"; endpoint: string; secretKey?: string; username?: string }
 export type ManagedConnection = { mode: "managed"; executable?: string }
 export interface ManagedProcessPort {
-  start(options: { executable?: string; healthCheck: (endpoint: string) => Promise<boolean> }): Promise<string>
+  start(options: { executable?: string; username: string; password: string; healthCheck: (endpoint: string) => Promise<boolean> }): Promise<string>
   stop(): Promise<void>
   readonly url?: string
 }
@@ -42,11 +43,13 @@ export class RuntimeConnection {
 
   async connectManaged(config: ManagedConnection = { mode: "managed" }): Promise<OpenCodeGateway> {
     this.assertDisconnected()
-    const password = process.env.OPENCODE_SERVER_PASSWORD
-    const username = process.env.OPENCODE_SERVER_USERNAME
+    const username = process.env.OPENCODE_SERVER_USERNAME?.trim() || "opencode"
+    const password = process.env.OPENCODE_SERVER_PASSWORD || randomBytes(32).toString("base64url")
     try {
       const endpoint = await this.managed.start({
         executable: config.executable,
+        username,
+        password,
         healthCheck: async (url) => {
           const candidate = this.createGateway(url, password, username)
           const health = await candidate.health()

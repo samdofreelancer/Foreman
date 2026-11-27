@@ -124,9 +124,34 @@ describe("standalone workspace API", () => {
     expect(await (await request(`/api/tasks/${task.id}/start`, "POST", {})).json()).toMatchObject({ result: { kind: "started", sessionId: "ses-1" } })
     expect(await (await request(`/api/tasks/${task.id}/resend`, "POST", {})).json()).toMatchObject({ result: { kind: "resent" } })
     expect(await (await request(`/api/tasks/${task.id}/follow-up`, "POST", { text: "Continue" })).json()).toMatchObject({ result: { kind: "followed-up", text: "Continue" } })
+    expect(execution.followUp).toHaveBeenCalledWith(task.id, "Continue")
     expect((await request(`/api/tasks/${task.id}/follow-up`, "POST", {})).status).toBe(400)
     expect((await request("/api/runtime/disconnect", "POST")).status).toBe(200)
     expect(runtime.disconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns the linked OpenCode conversation in task detail without reading OpenCode internal storage", async () => {
+    const gateway = {
+      readSessionMessages: vi.fn(async (sessionId: string) => [
+        { id: "msg-user", role: "user", text: "Verify SQLite migrations", createdAt: 100 },
+        { id: "msg-assistant", role: "assistant", text: "All migration checks passed.", createdAt: 200 },
+      ]),
+    }
+    const runtime = { status: { status: "connected" }, get activeGateway() { return gateway }, close: vi.fn(async () => undefined) }
+    const { request, tasks } = await workspace({ runtime })
+    const created = await request("/api/tasks", "POST", { title: "Verify SQLite migrations", projectDirectory: "/work/foreman" })
+    const { task } = await created.json() as { task: { id: string } }
+    const now = Date.now()
+    tasks.update({ ...tasks.getById(task.id)!, column: "ready", updatedAt: now })
+    expect(tasks.claimStart(task.id, "claim-message-history", now + 1)).toBe(true)
+    expect(tasks.claimSession(task.id, "ses-message-history", now + 2, "claim-message-history")).toBe(true)
+
+    const detail = await request(`/api/tasks/${task.id}`)
+    expect(await detail.json()).toMatchObject({ messages: [
+      { id: "msg-user", role: "user", text: "Verify SQLite migrations" },
+      { id: "msg-assistant", role: "assistant", text: "All migration checks passed." },
+    ] })
+    expect(gateway.readSessionMessages).toHaveBeenCalledWith("ses-message-history")
   })
 
   it("discovers projects from a connected runtime and imports only a currently advertised directory", async () => {

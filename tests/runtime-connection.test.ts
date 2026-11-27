@@ -38,6 +38,20 @@ describe("RuntimeConnection ownership", () => {
     expect(managed.stop).toHaveBeenCalledOnce()
   })
 
+  it("creates a private Basic Auth credential for each managed server and uses it for the SDK client", async () => {
+    const managed = fakeManaged()
+    const gateway = fakeGateway()
+    const createGateway = vi.fn(() => gateway)
+    const connection = new RuntimeConnection(new MemorySecretStore(), { managed, createGateway })
+    await connection.connectManaged()
+
+    const startedWith = vi.mocked(managed.start).mock.calls[0][0]
+    expect(startedWith.username).toBe("opencode")
+    expect(startedWith.password).toMatch(/^[A-Za-z0-9_-]{40,}$/)
+    expect(createGateway).toHaveBeenCalledWith("http://127.0.0.1:43199", startedWith.password, startedWith.username)
+    await connection.disconnect()
+  })
+
   it("keeps external credentials in the process secret store, not endpoint URLs", async () => {
     const secrets = new MemorySecretStore()
     await secrets.set("remote-opencode", "secret-value")

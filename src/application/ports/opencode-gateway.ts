@@ -1,6 +1,7 @@
 export type RuntimeProject = { directory: string; name?: string }
 export type RuntimeSession = { id: string; title?: string; directory?: string; status?: string }
 export type RuntimeEvent = { type: string; properties?: Record<string, unknown> }
+export type RuntimeMessage = { id: string; role: "user" | "assistant"; text: string; createdAt: number }
 export type RuntimePermission = { id: string; sessionId: string; title?: string; metadata?: Record<string, unknown> }
 export type RuntimeQuestion = { id: string; sessionId: string; questions: Array<{ key?: string; question: string; options?: string[] }> }
 export type RuntimeCapabilities = { sessions: true; projects: true; events: true; permissions: true; forms: true; persistentPty?: boolean }
@@ -14,6 +15,7 @@ export interface OpenCodeGateway {
   sendFollowUp(input: { sessionId: string; text: string }): Promise<void>
   interrupt(sessionId: string): Promise<void>
   readSession(sessionId: string): Promise<RuntimeSession | undefined>
+  readSessionMessages?(sessionId: string): Promise<RuntimeMessage[]>
   listPendingPermissions(sessionId?: string): Promise<RuntimePermission[]>
   replyPermission(input: { permissionId: string; response: "once" | "always" | "reject" }): Promise<void>
   listPendingQuestions(sessionId?: string): Promise<RuntimeQuestion[]>

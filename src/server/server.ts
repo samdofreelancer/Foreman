@@ -298,7 +298,11 @@ function registerWorkspaceApi(
   app.get<{ Params: { id: string } }>("/api/tasks/:id", async (request, reply) => {
     const task = tasks.getById(request.params.id)
     if (!task) return fail(reply, 404, "TASK_NOT_FOUND", "Task not found.")
-    return { task, activity: activities.listForTask(task.id) }
+    const gateway = runtime?.activeGateway
+    const messages = task.sessionID && gateway?.readSessionMessages
+      ? await gateway.readSessionMessages(task.sessionID)
+      : []
+    return { task, activity: activities.listForTask(task.id), messages }
   })
   app.post("/api/tasks", async (request, reply) => {
     if (!record(request.body)) return fail(reply, 400, "INVALID_TASK", "A task object is required.")

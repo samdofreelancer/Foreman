@@ -1,7 +1,7 @@
 import { OpenCode } from "@opencode/client"
 import type { OpenCodeClient } from "@opencode/client"
 import type {
-  OpenCodeGateway, RuntimeCapabilities, RuntimeEvent, RuntimePermission, RuntimeProject, RuntimeQuestion, RuntimeSession,
+  OpenCodeGateway, RuntimeCapabilities, RuntimeEvent, RuntimeMessage, RuntimePermission, RuntimeProject, RuntimeQuestion, RuntimeSession,
 } from "../../application/ports/opencode-gateway"
 
 export type OpenCodeCredentials = { username?: string; password?: string }
@@ -72,6 +72,18 @@ export class OpenCodeGatewayAdapter implements OpenCodeGateway {
       if (statusCode(error) === 404) return undefined
       throw error
     }
+  }
+
+  async readSessionMessages(sessionId: string): Promise<RuntimeMessage[]> {
+    const messages = await this.client.session.context({ sessionID: sessionId })
+    return messages.flatMap((message): RuntimeMessage[] => {
+      if (message.type === "user") return [{ id: message.id, role: "user", text: message.text, createdAt: message.time.created }]
+      if (message.type === "assistant") {
+        const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("").trim()
+        return text ? [{ id: message.id, role: "assistant", text, createdAt: message.time.created }] : []
+      }
+      return []
+    })
   }
 
   async listPendingPermissions(sessionId?: string): Promise<RuntimePermission[]> {

@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -37,5 +37,28 @@ describe("standalone application bootstrap", () => {
     expect(app.health()).toMatchObject({ status: "degraded", schemaVersion: 0 })
     expect(app.health().message).toContain("original data has not been deleted")
     app.close()
+  })
+
+  it("enters a safe degraded state for a malformed SQLite database without modifying the original", () => {
+    const directory = temporaryDirectory()
+    mkdirSync(directory, { recursive: true })
+    const databasePath = join(directory, "foreman.sqlite")
+    const seed = initializeForeman({ dataDirectory: directory })
+    seed.close()
+
+    const corrupted = Buffer.from(readFileSync(databasePath))
+    corrupted[Math.floor(corrupted.length / 2)] ^= 0xff
+    writeFileSync(databasePath, corrupted)
+    const before = Buffer.from(corrupted)
+
+    const app = initializeForeman({ dataDirectory: directory })
+    try {
+      expect(app.health()).toMatchObject({ status: "degraded", schemaVersion: 0 })
+      expect(app.health().message).toContain("original data has not been deleted")
+      expect(() => app.transaction(() => undefined)).toThrow(/unavailable/i)
+      expect(Buffer.compare(before, readFileSync(databasePath))).toBe(0)
+    } finally {
+      app.close()
+    }
   })
 })

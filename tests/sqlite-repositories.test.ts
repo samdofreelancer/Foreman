@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -6,6 +6,7 @@ import Database from "better-sqlite3"
 import { createTask } from "../src/domain/task"
 import { createProject } from "../src/domain/project"
 import { DatabaseStartupError, SqliteDatabase } from "../src/adapters/persistence/sqlite/database"
+import { migrations } from "../src/adapters/persistence/sqlite/migrations"
 import { SqliteTaskRepository } from "../src/adapters/persistence/sqlite/task-repository"
 import { SqliteProjectRepository } from "../src/adapters/persistence/sqlite/project-repository"
 import { SqliteActivityRepository } from "../src/adapters/persistence/sqlite/activity-repository"
@@ -202,6 +203,98 @@ describe("SQLite persistence", () => {
     expect(readOnly.health()).toEqual({ status: "ready", schemaVersion: 3 })
     expect(() => readOnly.transaction(() => 1)).toThrow()
     readOnly.close()
+  })
+
+  it("upgrades an existing database from an earlier schema version in place, preserving data", () => {
+    const directory = mkdtempSync(join(tmpdir(), "foreman-upgrade-"))
+    directories.push(directory)
+    const path = join(directory, "foreman.sqlite")
+    const setup = new Database(path)
+    const initial = migrations.find((migration) => migration.version === 1)!
+    setup.exec("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL, applied_at INTEGER NOT NULL)")
+    setup.transaction(() => {
+      initial.up(setup)
+      setup.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (1, ?, 1)").run(initial.name)
+    })()
+    setup.prepare("INSERT INTO projects(id, name, directory, created_at, updated_at) VALUES ('p1', 'Keep', '/work/keep', 1, 1)").run()
+    setup.close()
+
+    const upgraded = new SqliteDatabase(path)
+    databases.push(upgraded)
+    expect(upgraded.schemaVersion()).toBe(migrations.at(-1)!.version)
+    expect(upgraded.connection.prepare("SELECT name FROM projects WHERE id = 'p1'").get()).toEqual({ name: "Keep" })
+    expect(upgraded.connection.prepare("SELECT version FROM schema_migrations ORDER BY version").all())
+      .toEqual(migrations.map((migration) => ({ version: migration.version })))
+  })
+
+  it("rolls back only the failing migration and keeps earlier migrations applied", () => {
+    const directory = mkdtempSync(join(tmpdir(), "foreman-partial-migration-"))
+    directories.push(directory)
+    const path = join(directory, "foreman.sqlite")
+    const setup = new Database(path)
+    const initial = migrations.find((migration) => migration.version === 1)!
+    setup.exec("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL, applied_at INTEGER NOT NULL)")
+    setup.transaction(() => {
+      initial.up(setup)
+      setup.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (1, ?, 1)").run(initial.name)
+    })()
+    // A pre-existing object conflicts with the second migration's CREATE TABLE,
+    // which runs after that migration's ALTER TABLE inside the same transaction.
+    setup.exec("CREATE TABLE task_start_claims (task_id TEXT PRIMARY KEY NOT NULL)")
+    setup.prepare("INSERT INTO task_start_claims(task_id) VALUES ('sentinel')").run()
+    setup.close()
+
+    expect(() => new SqliteDatabase(path)).toThrow(DatabaseStartupError)
+
+    const verify = new Database(path, { readonly: true })
+    try {
+      expect(verify.prepare("SELECT version FROM schema_migrations ORDER BY version").all()).toEqual([{ version: 1 }])
+      const columns = (verify.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((column) => column.name)
+      expect(columns).not.toContain("initial_prompt_state")
+      expect(verify.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projects'").get()).toBeDefined()
+      expect(verify.prepare("SELECT task_id FROM task_start_claims").all()).toEqual([{ task_id: "sentinel" }])
+    } finally {
+      verify.close()
+    }
+  })
+
+  it("reports a malformed SQLite database as a recoverable startup error without touching the original", () => {
+    const directory = mkdtempSync(join(tmpdir(), "foreman-malformed-"))
+    directories.push(directory)
+    const path = join(directory, "foreman.sqlite")
+    const seed = new SqliteDatabase(path)
+    seed.connection.prepare("INSERT INTO projects(id, name, directory, created_at, updated_at) VALUES ('p1', 'P', '/work', 1, 1)").run()
+    seed.close()
+
+    const corrupted = Buffer.from(readFileSync(path))
+    const midpoint = Math.floor(corrupted.length / 2)
+    corrupted[midpoint] ^= 0xff
+    corrupted[midpoint + 1] ^= 0xff
+    writeFileSync(path, corrupted)
+    const before = Buffer.from(corrupted)
+
+    try {
+      new SqliteDatabase(path)
+      throw new Error("Expected malformed database to fail")
+    } catch (error) {
+      expect(error).toBeInstanceOf(DatabaseStartupError)
+      expect((error as DatabaseStartupError).diagnosticMessage).toMatch(/malformed|not a database/i)
+    }
+    expect(Buffer.compare(before, readFileSync(path))).toBe(0)
+  })
+
+  it("reports a malformed SQLite database as a startup error in read-only mode", () => {
+    const directory = mkdtempSync(join(tmpdir(), "foreman-malformed-readonly-"))
+    directories.push(directory)
+    const path = join(directory, "foreman.sqlite")
+    const seed = new SqliteDatabase(path)
+    seed.close()
+
+    const corrupted = Buffer.from(readFileSync(path))
+    corrupted[Math.floor(corrupted.length / 2)] ^= 0xff
+    writeFileSync(path, corrupted)
+
+    expect(() => new SqliteDatabase(path, { readonly: true })).toThrow(DatabaseStartupError)
   })
 
   it("refuses a database schema created by a newer Foreman version", () => {

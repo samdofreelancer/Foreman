@@ -10,6 +10,10 @@ function fakeClient() {
       prompt: vi.fn().mockResolvedValue({}),
       interrupt: vi.fn().mockResolvedValue({}),
       get: vi.fn().mockResolvedValue({ id: "ses-1", title: "Build", location: { directory: "C:\\work\\demo" }, time: { idle: 1 } }),
+      context: vi.fn().mockResolvedValue([
+        { id: "msg-user", type: "user", text: "Run the migrations", time: { created: 10 } },
+        { id: "msg-assistant", type: "assistant", content: [{ type: "text", text: "Migrations passed." }, { type: "tool", name: "test", id: "tool-1", state: { status: "completed", input: {}, content: [] }, time: { created: 11 } }], time: { created: 11 } },
+      ]),
       form: {
         list: vi.fn().mockResolvedValue([{ id: "form-1", sessionID: "ses-1", title: "Choose", fields: [{ key: "approval", title: "Approve", type: "string" }] }]),
         get: vi.fn().mockResolvedValue({ id: "form-1", sessionID: "ses-1", title: "Choose", fields: [{ key: "approval", title: "Approve", type: "string" }], state: {} }),
@@ -51,6 +55,16 @@ describe("OpenCodeGatewayAdapter", () => {
     expect(client.session.prompt).toHaveBeenNthCalledWith(2, { sessionID: "ses-1", text: "Continue", delivery: "queue" })
     expect(client.session.interrupt).toHaveBeenCalledWith({ sessionID: "ses-1" })
     expect(await gateway.readSession("ses-1")).toMatchObject({ id: "ses-1" })
+  })
+
+  it("reads user and assistant text from the supported OpenCode session context API", async () => {
+    const client = fakeClient()
+    const gateway = new OpenCodeGatewayAdapter(client as never)
+    expect(await gateway.readSessionMessages("ses-1")).toEqual([
+      { id: "msg-user", role: "user", text: "Run the migrations", createdAt: 10 },
+      { id: "msg-assistant", role: "assistant", text: "Migrations passed.", createdAt: 11 },
+    ])
+    expect(client.session.context).toHaveBeenCalledWith({ sessionID: "ses-1" })
   })
 
   it("treats a typed SessionNotFoundError as a missing session, not a transport failure", async () => {

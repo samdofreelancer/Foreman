@@ -154,6 +154,20 @@ test("explicitly starts a Ready task and sends follow-up to its linked session",
       : task)
     await route.fulfill({ response, json: payload })
   })
+  await page.route("**/api/tasks/*", async (route) => {
+    if (route.request().method() !== "GET") return route.continue()
+    const response = await route.fetch()
+    const payload = await response.json() as { task: Record<string, unknown>; activity: unknown[]; messages?: unknown[] }
+    if (payload.task.id === startedTaskId) {
+      payload.task = { ...payload.task, column: "doing", sessionID: "ses-e2e", initialPromptState: "sent", startedAt: Date.now() }
+      payload.messages = [
+        { id: "msg-user-e2e", role: "user", text: "Run the task", createdAt: Date.now() - 1000 },
+        { id: "msg-assistant-e2e", role: "assistant", text: "Execution result is visible in Foreman.", createdAt: Date.now() },
+        ...(followUpPayload?.text ? [{ id: "msg-follow-up-e2e", role: "user", text: followUpPayload.text, createdAt: Date.now() }] : []),
+      ]
+    }
+    await route.fulfill({ response, json: payload })
+  })
   await page.route("**/api/tasks/*/start", async (route) => {
     startedTaskId = route.request().url().split("/").at(-2) ?? ""
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ result: { kind: "started", sessionId: "ses-e2e" } }) })
@@ -178,10 +192,12 @@ test("explicitly starts a Ready task and sends follow-up to its linked session",
   await page.reload()
   await page.getByRole("button", { name: new RegExp(title) }).click()
   await expect(page.getByRole("dialog")).toContainText("ses-e2e")
+  await expect(page.getByRole("region", { name: "OpenCode conversation" })).toContainText("Execution result is visible in Foreman.")
   await expect(page.getByRole("link", { name: "Open in OpenCode" })).toHaveAttribute("href", "http://127.0.0.1:4096/server/aHR0cDovLzEyNy4wLjAuMTo0MDk2/session/ses-e2e")
   await page.getByLabel("Follow up in this session").fill("Add regression tests")
   await page.getByRole("button", { name: "Send follow-up" }).click()
   expect(followUpPayload).toEqual({ text: "Add regression tests" })
+  await expect(page.getByRole("region", { name: "OpenCode conversation" })).toContainText("Add regression tests")
 })
 
 test("resends a failed initial prompt in the existing session without starting another", async ({ page }) => {
@@ -204,6 +220,15 @@ test("resends a failed initial prompt in the existing session without starting a
     payload.tasks = payload.tasks.map((task) => task.id === taskId
       ? { ...task, column: "doing", sessionID: "ses-existing", initialPromptState: promptState, lastError: promptState === "failed" ? "Initial prompt rejected" : undefined }
       : task)
+    await route.fulfill({ response, json: payload })
+  })
+  await page.route("**/api/tasks/*", async (route) => {
+    if (route.request().method() !== "GET") return route.continue()
+    const response = await route.fetch()
+    const payload = await response.json() as { task: Record<string, unknown>; activity: unknown[]; messages?: unknown[] }
+    if (payload.task.id === taskId) {
+      payload.task = { ...payload.task, column: "doing", sessionID: "ses-existing", initialPromptState: promptState, lastError: promptState === "failed" ? "Initial prompt rejected" : undefined }
+    }
     await route.fulfill({ response, json: payload })
   })
   await page.route("**/api/tasks/*/start", async (route) => {

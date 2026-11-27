@@ -11,6 +11,7 @@ type RuntimeView = { status: "connected" | "stale" | "connecting" | "disconnecte
 type SavedRuntimeSettings = { mode: "managed" | "external"; endpoint?: string; executable?: string; username?: string; credentialRequired: boolean; autoConnect: boolean; updatedAt: number }
 type HealthView = { status: "ok" | "degraded"; server?: { status: string; uptimeSeconds: number; nodeVersion: string }; database?: { status: string; schemaVersion: number; message?: string }; runtime?: RuntimeView }
 type BackupPreview = { token: string; manifest: { createdAt: string; schemaVersion: number; databaseBytes: number }; counts: { tasks: number; projects: number; activities: number } }
+type TaskMessage = { id: string; role: "user" | "assistant"; text: string; createdAt: number }
 type Props = { route: AppRoute; csrfToken: string; onNavigate(path: AppRoute): void; onRuntimeChange(status: RuntimeView): void; onInboxCountChange(count: number): void }
 const columns: Array<{ id: TaskColumn; label: string; hint: string }> = [
   { id: "todo", label: "Todo", hint: "Ideas and upcoming work" },
@@ -47,6 +48,109 @@ function projectLabel(task: Task) {
 
 function formatDate(value: number) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(value)
+}
+
+type InlinePart = { type: "text" | "strong" | "emphasis" | "strike" | "code" | "link"; value: string; href?: string }
+type MarkdownBlock = { type: "paragraph" | "heading" | "quote" | "code" | "unordered-list" | "ordered-list" | "rule"; text?: string; level?: number; language?: string; items?: string[] }
+
+function parseInlineMarkdown(source: string): InlinePart[] {
+  const parts: InlinePart[] = []
+  const pattern = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|`[^`]+`|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\([^)]+\))/g
+  let offset = 0
+  for (const match of source.matchAll(pattern)) {
+    const index = match.index ?? 0
+    if (index > offset) parts.push({ type: "text", value: source.slice(offset, index) })
+    const token = match[0]
+    if (token.startsWith("**") || token.startsWith("__")) parts.push({ type: "strong", value: token.slice(2, -2) })
+    else if (token.startsWith("~~")) parts.push({ type: "strike", value: token.slice(2, -2) })
+    else if (token.startsWith("`")) parts.push({ type: "code", value: token.slice(1, -1) })
+    else if (token.startsWith("*") || token.startsWith("_")) parts.push({ type: "emphasis", value: token.slice(1, -1) })
+    else {
+      const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token)
+      if (link) parts.push({ type: "link", value: link[1], href: link[2] })
+      else parts.push({ type: "text", value: token })
+    }
+    offset = index + token.length
+  }
+  if (offset < source.length) parts.push({ type: "text", value: source.slice(offset) })
+  return parts
+}
+
+function parseMessageMarkdown(source: string): MarkdownBlock[] {
+  const lines = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n")
+  const blocks: MarkdownBlock[] = []
+  let index = 0
+  while (index < lines.length) {
+    const line = lines[index]
+    if (!line.trim()) { index++; continue }
+    if (line.startsWith("```")) {
+      const language = line.slice(3).trim()
+      const code: string[] = []
+      index++
+      while (index < lines.length && !lines[index].startsWith("```")) code.push(lines[index++])
+      if (index < lines.length) index++
+      blocks.push({ type: "code", text: code.join("\n"), language })
+      continue
+    }
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line)
+    if (heading) { blocks.push({ type: "heading", level: heading[1].length, text: heading[2] }); index++; continue }
+    if (/^\s*(---+|___+|\*\*\*+)\s*$/.test(line)) { blocks.push({ type: "rule" }); index++; continue }
+    if (/^>\s?/.test(line)) {
+      const quote: string[] = []
+      while (index < lines.length && /^>\s?/.test(lines[index])) quote.push(lines[index++].replace(/^>\s?/, ""))
+      blocks.push({ type: "quote", text: quote.join("\n") }); continue
+    }
+    const unordered = /^\s*[-*+]\s+(.+)$/.exec(line)
+    const ordered = /^\s*\d+[.)]\s+(.+)$/.exec(line)
+    if (unordered || ordered) {
+      const type = unordered ? "unordered-list" : "ordered-list"
+      const items: string[] = []
+      while (index < lines.length) {
+        const item = type === "unordered-list" ? /^\s*[-*+]\s+(.+)$/.exec(lines[index]) : /^\s*\d+[.)]\s+(.+)$/.exec(lines[index])
+        if (!item) break
+        items.push(item[1]); index++
+      }
+      blocks.push({ type, items }); continue
+    }
+    const paragraph: string[] = []
+    while (index < lines.length && lines[index].trim() && !/^(#{1,6}\s|```|>\s?|\s*[-*+]\s+|\s*\d+[.)]\s+|\s*(---+|___+|\*\*\*+)\s*$)/.test(lines[index])) paragraph.push(lines[index++])
+    if (paragraph.length) blocks.push({ type: "paragraph", text: paragraph.join("\n") })
+    else { blocks.push({ type: "paragraph", text: lines[index] }); index++ }
+  }
+  return blocks
+}
+
+function safeMarkdownHref(href: string): string | undefined {
+  try {
+    const url = new URL(href)
+    return ["https:", "http:", "mailto:"].includes(url.protocol) ? url.href : undefined
+  } catch { return undefined }
+}
+
+function renderInlineMarkdown(source: string) {
+  return parseInlineMarkdown(source).map((part) => {
+    if (part.type === "strong") return <strong>{part.value}</strong>
+    if (part.type === "emphasis") return <em>{part.value}</em>
+    if (part.type === "strike") return <del>{part.value}</del>
+    if (part.type === "code") return <code class="message-inline-code">{part.value}</code>
+    if (part.type === "link") {
+      const href = safeMarkdownHref(part.href ?? "")
+      return href ? <a href={href} target="_blank" rel="noreferrer">{part.value}</a> : <span>{part.value}</span>
+    }
+    return <span>{part.value}</span>
+  })
+}
+
+function MessageMarkdown(props: { source: string }) {
+  return <div class="message-markdown"><For each={parseMessageMarkdown(props.source)}>{(block) => {
+    if (block.type === "heading") return <h4 class={`message-heading message-heading-${block.level}`}>{renderInlineMarkdown(block.text ?? "")}</h4>
+    if (block.type === "quote") return <blockquote>{renderInlineMarkdown(block.text ?? "")}</blockquote>
+    if (block.type === "code") return <div class="message-code"><Show when={block.language}><span class="message-code-language">{block.language}</span></Show><pre><code>{block.text}</code></pre></div>
+    if (block.type === "unordered-list") return <ul><For each={block.items}>{(item) => <li>{renderInlineMarkdown(item)}</li>}</For></ul>
+    if (block.type === "ordered-list") return <ol><For each={block.items}>{(item) => <li>{renderInlineMarkdown(item)}</li>}</For></ol>
+    if (block.type === "rule") return <hr />
+    return <p>{renderInlineMarkdown(block.text ?? "")}</p>
+  }}</For></div>
 }
 
 function executionLabel(task: Task, runtime: RuntimeView) {
@@ -98,6 +202,7 @@ export function Workspace(props: Props) {
   const [backupNotice, setBackupNotice] = createSignal("")
   const [restorePreview, setRestorePreview] = createSignal<BackupPreview>()
   const [followUpText, setFollowUpText] = createSignal("")
+  const [taskMessages, setTaskMessages] = createSignal<TaskMessage[]>([])
 
   const handleEscape = (event: KeyboardEvent) => {
     if (event.key !== "Escape") return
@@ -150,6 +255,27 @@ export function Workspace(props: Props) {
       setSavedRuntimeSettings(runtimeResult.settings); setHealthInfo(healthResult)
     } catch { /* the shell's local-server health indicator handles server loss */ }
   }
+  createEffect(() => {
+    const task = selected()
+    if (!task?.sessionID) { setTaskMessages([]); return }
+    let active = true
+    const loadConversation = async () => {
+      try {
+        const detail = await request<{ task: Task; messages: TaskMessage[]; activity: ActivityEvent[] }>(`/api/tasks/${task.id}`, props.csrfToken)
+        if (!active) return
+        setTaskMessages(detail.messages)
+        if (task.updatedAt !== detail.task.updatedAt || task.column !== detail.task.column || task.lastError !== detail.task.lastError) {
+          setSelected(detail.task)
+        }
+        setTasks((current) => current.map((item) => item.id === detail.task.id ? detail.task : item))
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : "OpenCode conversation could not be loaded.")
+      }
+    }
+    void loadConversation()
+    const interval = window.setInterval(() => void loadConversation(), 3_000)
+    onCleanup(() => { active = false; window.clearInterval(interval) })
+  })
   createEffect(() => {
     if (props.route !== "/settings") return
     void refreshOperationalStatus()
@@ -430,7 +556,7 @@ export function Workspace(props: Props) {
         <Show when={runtimeStatus().status !== "connected"}>
           <form class="runtime-connect-form" onSubmit={connectRuntime}>
             <label>Connection mode<select value={runtimeMode()} onChange={(event) => setRuntimeMode(event.currentTarget.value as "managed" | "external")}><option value="managed">Managed · Foreman starts OpenCode</option><option value="external">External · connect to an existing server</option></select></label>
-            <Show when={runtimeMode() === "managed"}><label>OpenCode executable path (optional)<input value={runtimeExecutable()} onInput={(event) => setRuntimeExecutable(event.currentTarget.value)} placeholder="opencode or absolute path to 2.4.x binary"/><span class="form-note">The default executable on PATH must report version 2.4.x. Foreman will only stop the process it starts.</span></label></Show>
+            <Show when={runtimeMode() === "managed"}><label>OpenCode executable path (optional)<input value={runtimeExecutable()} onInput={(event) => setRuntimeExecutable(event.currentTarget.value)} placeholder="opencode or absolute path to 2.4.x binary"/><span class="form-note">Foreman checks the CLI version and can use the bundled OpenCode Desktop 2.4.x CLI when the PATH version is incompatible. Managed servers receive a private temporary password automatically. Foreman only stops the process it starts.</span></label></Show>
             <Show when={runtimeMode() === "external"}><label>Server endpoint<input required type="url" value={runtimeEndpoint()} onInput={(event) => setRuntimeEndpoint(event.currentTarget.value)} placeholder="http://127.0.0.1:4096"/></label><label>Username<input value={runtimeUsername()} onInput={(event) => setRuntimeUsername(event.currentTarget.value)}/></label><label>Password<input type="password" autocomplete="off" value={runtimePassword()} onInput={(event) => setRuntimePassword(event.currentTarget.value)} placeholder="Optional · never stored in SQLite"/><span class="form-note">Credentials are stored only in the OS vault when supported. Otherwise, Foreman asks for the password again after restart.</span></label></Show>
             <button class="button button-primary" type="submit" disabled={runtimeBusy()}>{runtimeBusy() ? "Connecting…" : "Connect OpenCode"}</button>
           </form>
@@ -440,7 +566,7 @@ export function Workspace(props: Props) {
       </section>
     </Show>
 
-    <Show when={selected() && !editing()}><div class="detail-backdrop" role="presentation" onClick={() => setSelected(undefined)}><aside class="task-detail" role="dialog" aria-modal="true" aria-labelledby="detail-title" onClick={(event) => event.stopPropagation()}><div class="detail-head"><span class="eyebrow">TASK DETAILS</span><button class="icon-button" aria-label="Close task details" onClick={() => setSelected(undefined)}>×</button></div><span class="task-project">{projectLabel(selected()!)}</span><h2 id="detail-title">{selected()!.title}</h2><p class="detail-description">{selected()!.description || "No description provided."}</p><div class="detail-field"><span>Status</span><select aria-label="Task status" disabled={selected()!.column === "doing"} value={selected()!.column} onChange={(event) => void moveTask(selected()!, event.currentTarget.value as TaskColumn)}><option value="todo">Todo</option><option value="ready">Ready</option><option value="doing" disabled>Doing · runtime controlled</option><option value="done">Done</option></select></div><div class="detail-field"><span>Project directory</span><code>{selected()!.projectDirectory}</code></div><div class="detail-field"><span>Agent</span><strong>{selected()!.agent || "build"}</strong></div><div class="detail-field"><span>Model</span><strong>{selected()!.model ? `${selected()!.model!.providerID} / ${selected()!.model!.id}` : "Not specified"}</strong></div><div class="detail-field"><span>OpenCode session</span><strong>{selected()!.sessionID || "Not started"}<Show when={selected()!.sessionID && runtimeStatus().sessionBaseUrl}><a class="session-open-link" href={`${runtimeStatus().sessionBaseUrl}/${encodeURIComponent(selected()!.sessionID!)}`} target="_blank" rel="noreferrer">Open in OpenCode ↗</a></Show></strong></div><div class="detail-field"><span>Execution state</span><strong>{executionLabel(selected()!, runtimeStatus())}</strong></div><Show when={selected()!.startPending}><p class="workspace-alert" role="status">Start outcome is unknown. Inspect OpenCode before retrying; Foreman has blocked duplicate session creation.</p><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void recoverStartClaim()}>I confirmed no session exists · clear start lock</button></Show><Show when={selected()!.lastError}><p class="workspace-alert" role="status">{selected()!.lastError}</p></Show><Show when={selected()!.sessionID && selected()!.initialPromptState === "pending"}><p class="form-note">The initial prompt delivery state is unknown. Inspect this session in OpenCode before taking another action.</p></Show><Show when={!selected()!.sessionID}><div class="detail-actions"><button class="button button-primary" disabled={runtimeStatus().status !== "connected" || selected()!.column !== "ready" || selected()!.startPending || runtimeBusy()} onClick={() => void startSelected()}>{runtimeBusy() ? "Starting…" : selected()!.startPending ? "Start outcome unknown" : "Start task"}</button><Show when={runtimeStatus().status !== "connected"}><button class="button button-quiet" onClick={() => props.onNavigate("/settings")}>Connect OpenCode</button></Show></div></Show><Show when={selected()!.sessionID && selected()!.initialPromptState === "failed"}><button class="button button-primary" disabled={runtimeStatus().status !== "connected" || runtimeBusy()} onClick={() => void resendPrompt()}>Resend initial prompt</button></Show><Show when={selected()!.sessionID}><form class="follow-up-form" onSubmit={sendFollowUp}><label>Follow up in this session<textarea required rows="3" maxlength="20000" value={followUpText()} onInput={(event) => setFollowUpText(event.currentTarget.value)} placeholder="Give OpenCode the next instruction…"/></label><button class="button button-primary" type="submit" disabled={runtimeStatus().status !== "connected" || runtimeBusy() || !followUpText().trim()}>Send follow-up</button></form></Show><div class="detail-field"><span>Created</span><strong>{formatDate(selected()!.createdAt)}</strong></div><div class="detail-actions"><button class="button button-quiet" onClick={openEdit}>Edit task</button><button class="button button-danger" disabled={!!selected()!.sessionID || !!selected()!.startPending} onClick={() => void deleteSelected()}>Delete</button></div><h3 class="detail-activity-title">Task activity</h3><For each={activities().filter((item) => item.taskId === selected()!.id)}>{(item) => <p class="detail-activity">{item.summary} <time>{formatDate(item.occurredAt)}</time></p>}</For></aside></div></Show>
+    <Show when={selected() && !editing()}><div class="detail-backdrop" role="presentation" onClick={() => setSelected(undefined)}><aside class="task-detail" role="dialog" aria-modal="true" aria-labelledby="detail-title" onClick={(event) => event.stopPropagation()}><div class="detail-head"><span class="eyebrow">TASK DETAILS</span><button class="icon-button" aria-label="Close task details" onClick={() => setSelected(undefined)}>×</button></div><span class="task-project">{projectLabel(selected()!)}</span><h2 id="detail-title">{selected()!.title}</h2><p class="detail-description">{selected()!.description || "No description provided."}</p><div class="detail-field"><span>Status</span><select aria-label="Task status" disabled={selected()!.column === "doing"} value={selected()!.column} onChange={(event) => void moveTask(selected()!, event.currentTarget.value as TaskColumn)}><option value="todo">Todo</option><option value="ready">Ready</option><option value="doing" disabled>Doing · runtime controlled</option><option value="done">Done</option></select></div><div class="detail-field"><span>Project directory</span><code>{selected()!.projectDirectory}</code></div><div class="detail-field"><span>Agent</span><strong>{selected()!.agent || "build"}</strong></div><div class="detail-field"><span>Model</span><strong>{selected()!.model ? `${selected()!.model!.providerID} / ${selected()!.model!.id}` : "Not specified"}</strong></div><div class="detail-field"><span>OpenCode session</span><strong>{selected()!.sessionID || "Not started"}<Show when={selected()!.sessionID && runtimeStatus().sessionBaseUrl}><a class="session-open-link" href={`${runtimeStatus().sessionBaseUrl}/${encodeURIComponent(selected()!.sessionID!)}`} target="_blank" rel="noreferrer">Open in OpenCode ↗</a></Show></strong></div><div class="detail-field"><span>Execution state</span><strong>{executionLabel(selected()!, runtimeStatus())}</strong></div><Show when={selected()!.startPending}><p class="workspace-alert" role="status">Start outcome is unknown. Inspect OpenCode before retrying; Foreman has blocked duplicate session creation.</p><button class="button button-quiet" disabled={runtimeBusy()} onClick={() => void recoverStartClaim()}>I confirmed no session exists · clear start lock</button></Show><Show when={selected()!.lastError}><p class="workspace-alert" role="status">{selected()!.lastError}</p></Show><Show when={selected()!.sessionID && selected()!.initialPromptState === "pending"}><p class="form-note">The initial prompt delivery state is unknown. Inspect this session in OpenCode before taking another action.</p></Show><Show when={selected()!.sessionID}><section class="task-conversation" aria-label="OpenCode conversation"><div class="conversation-heading"><h3>Conversation</h3><span>{taskMessages().length} messages</span></div><Show when={taskMessages().length === 0}><p class="form-note">No conversation messages are available yet.</p></Show><For each={taskMessages()}>{(message) => <article class={`conversation-message conversation-${message.role}`}><header><span class="conversation-avatar">{message.role === "assistant" ? "O" : "Y"}</span><strong>{message.role === "assistant" ? "OpenCode" : "You"}</strong><time>{formatDate(message.createdAt)}</time></header><MessageMarkdown source={message.text}/></article>}</For></section></Show><Show when={!selected()!.sessionID}><div class="detail-actions"><button class="button button-primary" disabled={runtimeStatus().status !== "connected" || selected()!.column !== "ready" || selected()!.startPending || runtimeBusy()} onClick={() => void startSelected()}>{runtimeBusy() ? "Starting…" : selected()!.startPending ? "Start outcome unknown" : "Start task"}</button><Show when={runtimeStatus().status !== "connected"}><button class="button button-quiet" onClick={() => props.onNavigate("/settings")}>Connect OpenCode</button></Show></div></Show><Show when={selected()!.sessionID && selected()!.initialPromptState === "failed"}><button class="button button-primary" disabled={runtimeStatus().status !== "connected" || runtimeBusy()} onClick={() => void resendPrompt()}>Resend initial prompt</button></Show><Show when={selected()!.sessionID}><form class="follow-up-form" onSubmit={sendFollowUp}><label>Follow up in this session<textarea required rows="3" maxlength="20000" value={followUpText()} onInput={(event) => setFollowUpText(event.currentTarget.value)} placeholder="Give OpenCode the next instruction…"/></label><button class="button button-primary" type="submit" disabled={runtimeStatus().status !== "connected" || runtimeBusy() || !followUpText().trim()}>Send follow-up</button></form></Show><div class="detail-field"><span>Created</span><strong>{formatDate(selected()!.createdAt)}</strong></div><div class="detail-actions"><button class="button button-quiet" onClick={openEdit}>Edit task</button><button class="button button-danger" disabled={!!selected()!.sessionID || !!selected()!.startPending} onClick={() => void deleteSelected()}>Delete</button></div><h3 class="detail-activity-title">Task activity</h3><For each={activities().filter((item) => item.taskId === selected()!.id)}>{(item) => <p class="detail-activity">{item.summary} <time>{formatDate(item.occurredAt)}</time></p>}</For></aside></div></Show>
 
     <Show when={showCreate() || editing()}><div class="detail-backdrop" role="presentation" onClick={() => { setShowCreate(false); setEditing(false) }}><section class="task-form-dialog" role="dialog" aria-modal="true" aria-labelledby="task-form-title" onClick={(event) => event.stopPropagation()}><div class="detail-head"><div><span class="eyebrow">WORK ITEM</span><h2 id="task-form-title">{editing() ? "Edit task" : "Create task"}</h2></div><button class="icon-button" aria-label="Close task form" onClick={() => { setShowCreate(false); setEditing(false) }}>×</button></div><form onSubmit={saveTask}><label>Task title<input required maxlength="200" autofocus value={formTitle()} onInput={(event) => setFormTitle(event.currentTarget.value)} placeholder="What needs to be done?"/></label><label>Description<textarea rows="4" value={formDescription()} onInput={(event) => setFormDescription(event.currentTarget.value)} placeholder="Describe the intent and expected outcome…"/></label><label>Project folder<input required value={formProject()} onInput={(event) => setFormProject(event.currentTarget.value)} list="project-directories" placeholder="C:\\work\\project"/><datalist id="project-directories"><For each={projects()}>{(project) => <option value={project.directory}>{project.name}</option>}</For></datalist></label><label>Project name<input value={formProjectName()} onInput={(event) => setFormProjectName(event.currentTarget.value)} placeholder="Optional display name"/></label><label>Agent<input value={formAgent()} onInput={(event) => setFormAgent(event.currentTarget.value)} placeholder="build"/></label><div class="form-two-columns"><label>Model provider ID<input value={formProvider()} onInput={(event) => setFormProvider(event.currentTarget.value)} placeholder="Optional provider"/></label><label>Model ID<input value={formModel()} onInput={(event) => setFormModel(event.currentTarget.value)} placeholder="Optional model"/></label></div><p class="form-note">Tasks are saved locally. Moving a task to Ready does not start an OpenCode session.</p><div class="detail-actions"><button class="button button-primary" type="submit" disabled={saving()}>{saving() ? "Saving…" : editing() ? "Save changes" : "Create task"}</button><button class="button button-quiet" type="button" onClick={() => { setShowCreate(false); setEditing(false) }}>Cancel</button></div></form></section></div></Show>
   </>
