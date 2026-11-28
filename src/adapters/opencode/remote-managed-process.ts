@@ -10,7 +10,7 @@ export class RemoteManagedOpenCodeProcess implements ManagedProcessPort {
   private readonly token: string
 
   constructor(options: { baseUrl?: string; token?: string; request?: typeof fetch } = {}) {
-    this.baseUrl = (options.baseUrl ?? process.env.FOREMAN_HOST_AGENT_URL ?? "http://host.docker.internal:4320").replace(/\/+$/, "")
+    this.baseUrl = (options.baseUrl ?? process.env.FOREMAN_HOST_AGENT_URL ?? "https://host.docker.internal:4320").replace(/\/+$/, "")
     this.token = options.token ?? process.env.FOREMAN_HOST_AGENT_TOKEN ?? ""
     this.request = options.request ?? fetch
   }
@@ -58,6 +58,10 @@ async function readResponse(response: Response): Promise<AgentResponse> {
     const value: unknown = await response.json()
     if (typeof value !== "object" || value === null) return {}
     const record = value as Record<string, unknown>
-    return { endpoint: typeof record.endpoint === "string" ? record.endpoint : undefined, error: typeof record.error === "string" ? record.error : undefined }
+    return {
+      endpoint: typeof record.endpoint === "string" ? record.endpoint : undefined,
+      token: typeof record.token === "string" ? record.token : undefined,
+      error: typeof record.error === "string" ? record.error : undefined,
+    }
   } catch { return {} }
 }

@@ -1,7 +1,8 @@
-import { createServer, request as httpRequest } from "node:http"
+import { request as httpRequest } from "node:http"
+import { createServer as createHttpsServer } from "node:https"
 import { spawn, execFileSync } from "node:child_process"
 import { createServer as createNetServer } from "node:net"
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { timingSafeEqual, randomBytes } from "node:crypto"
 import { Transform } from "node:stream"
@@ -88,10 +89,13 @@ async function startManaged(input) {
   spawned.once("exit", () => { if (child === spawned) { child = undefined; activePort = undefined } })
   await new Promise((resolve) => setTimeout(resolve, 500))
   if (spawned.exitCode !== null) throw new Error(`OpenCode exited during startup (code ${spawned.exitCode})`)
-  return { endpoint: "http://host.docker.internal:4320/opencode", token: capability }
+  return { endpoint: "https://host.docker.internal:4320/opencode", token: capability }
 }
 
-const server = createServer(async (request, response) => {
+const server = createHttpsServer({
+  key: readFileSync(process.env.FOREMAN_HOST_AGENT_KEY ?? ".host-agent-certs/host-agent-key.pem"),
+  cert: readFileSync(process.env.FOREMAN_HOST_AGENT_CERT ?? ".host-agent-certs/host-agent-cert.pem"),
+}, async (request, response) => {
   if (request.url?.startsWith("/opencode/")) {
     if (!child || child.exitCode !== null || !activePort) {
       response.writeHead(503).end("Managed OpenCode runtime is not running")
@@ -122,7 +126,7 @@ const server = createServer(async (request, response) => {
     }, (upstreamResponse) => {
       const responseHeaders = { ...upstreamResponse.headers }
       for (const header of ["connection", "keep-alive", "transfer-encoding", "upgrade", "set-cookie"]) delete responseHeaders[header]
-      response.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders)
+      response.writeHead(upstreamResponse.statusCode ?? 502, { ...responseHeaders, "cache-control": "no-store" })
       upstreamResponse.pipe(response)
     })
     upstream.on("error", () => {
@@ -147,7 +151,7 @@ const server = createServer(async (request, response) => {
     return
   }
   if (request.method === "GET" && request.url === "/health") {
-    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ status: "ok", managed: !!child && child.exitCode === null, port: activePort }))
+    response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify({ status: "ok", managed: !!child && child.exitCode === null }))
     return
   }
   if (request.method === "POST" && request.url === "/runtime/start") {
@@ -158,7 +162,7 @@ const server = createServer(async (request, response) => {
     }
     try {
       const result = await startManaged(JSON.parse(raw || "{}"))
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result))
+      response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(result))
     } catch (error) {
       response.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: error instanceof Error ? error.message.slice(0, 240) : "OpenCode startup failed" }))
     }
@@ -166,7 +170,7 @@ const server = createServer(async (request, response) => {
   }
   if (request.method === "POST" && request.url === "/runtime/stop") {
     await stopManaged()
-    response.writeHead(200, { "content-type": "application/json" }).end('{"stopped":true}')
+    response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end('{"stopped":true}')
     return
   }
   response.writeHead(404).end()

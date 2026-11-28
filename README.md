@@ -103,12 +103,16 @@ phone must be connected to the same Tailscale tailnet. The app container does no
 OpenCode. **Managed runtime remains the normal mode:** the Windows Host Agent discovers
 the OpenCode Desktop 2.4.x CLI and starts/stops the server on demand. OpenCode itself binds
 to Windows loopback; the Host Agent reverse-proxies it through its existing
-`host.docker.internal:4320` listener. Each runtime receives a fresh 256-bit bearer token
+`host.docker.internal:4320` listener over HTTPS. The startup script provisions a private
+TLS certificate; only its public certificate is mounted read-only into the container and
+trusted through `NODE_EXTRA_CA_CERTS`. Each runtime receives a fresh 256-bit bearer token
 in the HTTP Authorization header; the token is not placed in the URL and is invalidated
 when the runtime stops. The OpenCode password is generated on Windows and never crosses
 the Docker/WSL boundary. OpenCode 2.x currently supports Basic Auth for its native server
 authentication, so the Host Agent injects that credential only on its loopback request
-to `127.0.0.1`; it is never exposed to Docker or the network.
+to `127.0.0.1`; it is never exposed to Docker or the network. The certificate private key
+is retained on Windows and protected by the current user's, SYSTEM's, and Administrators'
+filesystem ACLs.
 The Host Agent listener binds only to the private Windows↔WSL gateway address, not the LAN
 interface. A separate 256-bit bearer token is generated and stored in the ignored `.env`
 file; do not commit or share that file.

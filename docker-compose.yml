@@ -18,10 +18,12 @@ services:
       FOREMAN_DATA_DIR: /data
       FOREMAN_NO_OPEN: "1"
       FOREMAN_TRUSTED_HTTPS_ORIGIN: ${FOREMAN_TRUSTED_HTTPS_ORIGIN:-}
-      FOREMAN_HOST_AGENT_URL: http://host.docker.internal:4320
+      FOREMAN_HOST_AGENT_URL: https://host.docker.internal:4320
       FOREMAN_HOST_AGENT_TOKEN: ${FOREMAN_HOST_AGENT_TOKEN:-}
+      NODE_EXTRA_CA_CERTS: /run/secrets/foreman-host-agent-cert.pem
     volumes:
       - foreman-data:/data
+      - ./.host-agent-certs/host-agent-cert.pem:/run/secrets/foreman-host-agent-cert.pem:ro
     extra_hosts:
       - "host.docker.internal:${FOREMAN_WINDOWS_HOST:-host-gateway}"
     security_opt:

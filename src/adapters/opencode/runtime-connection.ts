@@ -27,8 +27,8 @@ export class RuntimeConnection {
       ? new RemoteManagedOpenCodeProcess()
       : new ManagedOpenCodeProcess())
     this.createGateway = options.createGateway ?? ((endpoint, password, username) => {
-      // The Windows Host Agent authenticates its private capability URL and injects
-      // OpenCode Basic Auth locally; never send the OpenCode password over HTTP/WSL.
+      // The Windows Host Agent validates a runtime-scoped bearer header and injects
+      // OpenCode Basic Auth locally; never send the OpenCode password over WSL.
       const credentials = this.managed instanceof RemoteManagedOpenCodeProcess ? undefined : password ? { password, username } : undefined
       return new OpenCodeGatewayAdapter(createOpenCodeClient(endpoint, credentials, this.managed.authorizationHeader))
     })

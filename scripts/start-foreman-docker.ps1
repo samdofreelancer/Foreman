@@ -29,10 +29,50 @@ if ($hostAgentToken.Length -lt 64) { throw "FOREMAN_HOST_AGENT_TOKEN must contai
   "FOREMAN_WINDOWS_HOST=$windowsHost"
   "FOREMAN_HOST_AGENT_TOKEN=$hostAgentToken"
 ) | Set-Content -LiteralPath '.env' -Encoding ascii
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+& icacls.exe (Join-Path $projectRoot '.env') /inheritance:r /grant:r `
+  "$($currentUser):(F)" 'SYSTEM:(F)' 'BUILTIN\Administrators:(F)' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Could not restrict permissions for the Foreman environment file.' }
+
+# Provision a private CA/server certificate for the WSL-to-Windows Host Agent
+# channel. Only the public certificate is mounted into the Foreman container.
+$certDirectory = Join-Path $projectRoot '.host-agent-certs'
+New-Item -ItemType Directory -Path $certDirectory -Force | Out-Null
+$agentCertificate = Join-Path $certDirectory 'host-agent-cert.pem'
+$agentPrivateKey = Join-Path $certDirectory 'host-agent-key.pem'
+  $linuxProjectRoot = (& wsl.exe -d Ubuntu -e wslpath -a $projectRoot).Trim()
+if (-not $linuxProjectRoot) { throw 'Could not resolve the Foreman workspace path inside WSL.' }
+$linuxCertDirectory = "$linuxProjectRoot/.host-agent-certs"
+$certificateNeedsRenewal = -not (Test-Path -LiteralPath $agentCertificate) -or -not (Test-Path -LiteralPath $agentPrivateKey)
+if (-not $certificateNeedsRenewal) {
+  & wsl.exe -d Ubuntu -e openssl x509 -checkend 2592000 -noout -in "$linuxCertDirectory/host-agent-cert.pem" *> $null
+  $certificateNeedsRenewal = $LASTEXITCODE -ne 0
+}
+if ($certificateNeedsRenewal) {
+  & wsl.exe -d Ubuntu -e openssl req -x509 -newkey rsa:3072 -sha256 -nodes `
+    -keyout "$linuxCertDirectory/host-agent-key.pem" `
+    -out "$linuxCertDirectory/host-agent-cert.pem" `
+    -days 825 -subj '/CN=host.docker.internal' `
+    -addext 'subjectAltName=DNS:host.docker.internal' `
+    -addext 'basicConstraints=critical,CA:TRUE' `
+    -addext 'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign' `
+    -addext 'extendedKeyUsage=serverAuth'
+  if ($LASTEXITCODE -ne 0) { throw 'Could not generate the Host Agent TLS certificate using WSL OpenSSL.' }
+}
+& icacls.exe $certDirectory /inheritance:r /grant:r `
+  "$($currentUser):(OI)(CI)F" 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' /T /C | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Could not restrict Host Agent certificate directory permissions.' }
+foreach ($certificateFile in Get-ChildItem -LiteralPath $certDirectory -File) {
+  & icacls.exe $certificateFile.FullName /inheritance:r /grant:r `
+    "$($currentUser):(F)" 'SYSTEM:(F)' 'BUILTIN\Administrators:(F)' | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Could not restrict permissions for $($certificateFile.Name)." }
+}
 
 # The Windows host agent owns the OpenCode Desktop CLI and exposes its managed
 # server only on the private WSL gateway address (never on the LAN interface).
 $env:FOREMAN_HOST_AGENT_TOKEN = $hostAgentToken
+$env:FOREMAN_HOST_AGENT_CERT = $agentCertificate
+$env:FOREMAN_HOST_AGENT_KEY = $agentPrivateKey
 $agentListeners = Get-NetTCPConnection -LocalPort 4320 -State Listen -ErrorAction SilentlyContinue
 foreach ($listener in $agentListeners) {
   $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)"
@@ -47,7 +87,7 @@ $agent = Start-Process -FilePath "node" -ArgumentList @(
 ) -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
 Start-Sleep -Seconds 2
 try {
-  $agentHealth = Invoke-WebRequest -Uri "http://${windowsHost}:4320/health" -Headers @{ Authorization = "Bearer $hostAgentToken" } -UseBasicParsing -TimeoutSec 5
+  $agentHealth = Invoke-WebRequest -Uri "https://${windowsHost}:4320/health" -Headers @{ Authorization = "Bearer $hostAgentToken" } -UseBasicParsing -SkipCertificateCheck -TimeoutSec 5
   if ($agentHealth.StatusCode -ne 200) { throw "OpenCode host agent health check returned HTTP $($agentHealth.StatusCode)." }
 } catch {
   Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue

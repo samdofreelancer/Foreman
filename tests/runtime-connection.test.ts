@@ -55,9 +55,9 @@ describe("RuntimeConnection ownership", () => {
 
   it("keeps OpenCode Basic Auth inside the Windows Host Agent proxy", async () => {
     const agentRequest = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ endpoint: "http://host.docker.internal:4320/opencode", token: "f".repeat(64) }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ endpoint: "https://host.docker.internal:4320/opencode", token: "f".repeat(64) }), { status: 200 }))
       .mockResolvedValueOnce(new Response("", { status: 200 }))
-    const managed = new RemoteManagedOpenCodeProcess({ baseUrl: "http://host.docker.internal:4320", token: "c".repeat(64), request: agentRequest })
+    const managed = new RemoteManagedOpenCodeProcess({ baseUrl: "https://host.docker.internal:4320", token: "c".repeat(64), request: agentRequest })
     const observed: Request[] = []
     const runtimeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init)
