@@ -49,6 +49,7 @@ export async function startForemanCli(options: ForemanCliOptions = {}): Promise<
   let runtime: ForemanLoopbackServers
   try {
     runtime = await startForemanLoopback({
+      host: process.env.FOREMAN_HOST === "0.0.0.0" ? "0.0.0.0" : undefined,
       port,
       logger: options.logger,
       repositories: bootstrap.tasks && bootstrap.projects && bootstrap.activities

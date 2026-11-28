@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import type { OpenCodeGateway } from "../src/application/ports/opencode-gateway"
 import { FallbackSecretStore, MemorySecretStore, WindowsCredentialStore } from "../src/adapters/opencode/secret-store"
+import { RemoteManagedOpenCodeProcess } from "../src/adapters/opencode/remote-managed-process"
 import { RuntimeConnection, type ManagedProcessPort } from "../src/adapters/opencode/runtime-connection"
 
 function fakeGateway(): OpenCodeGateway {
@@ -50,6 +51,32 @@ describe("RuntimeConnection ownership", () => {
     expect(startedWith.password).toMatch(/^[A-Za-z0-9_-]{40,}$/)
     expect(createGateway).toHaveBeenCalledWith("http://127.0.0.1:43199", startedWith.password, startedWith.username)
     await connection.disconnect()
+  })
+
+  it("keeps OpenCode Basic Auth inside the Windows Host Agent proxy", async () => {
+    const agentRequest = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ endpoint: "http://host.docker.internal:4320/opencode", token: "f".repeat(64) }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("", { status: 200 }))
+    const managed = new RemoteManagedOpenCodeProcess({ baseUrl: "http://host.docker.internal:4320", token: "c".repeat(64), request: agentRequest })
+    const observed: Request[] = []
+    const runtimeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init)
+      observed.push(request)
+      return request.url.endsWith("/api/info")
+        ? new Response(JSON.stringify({ version: "2.4.2", capabilities: {} }), { status: 200, headers: { "content-type": "application/json" } })
+        : new Response("[]", { status: 200, headers: { "content-type": "application/json" } })
+    })
+    vi.stubGlobal("fetch", runtimeFetch)
+    try {
+      const connection = new RuntimeConnection(new MemorySecretStore(), { managed })
+      await connection.connectManaged()
+      expect(observed.length).toBeGreaterThan(0)
+      expect(observed.every((request) => request.headers.get("authorization") === `Bearer ${"f".repeat(64)}`)).toBe(true)
+      await connection.disconnect()
+      expect(managed.url).toBeUndefined()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("keeps external credentials in the process secret store, not endpoint URLs", async () => {

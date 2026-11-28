@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import type { AddressInfo } from "node:net"
-import { isAllowedHostHeader, isLoopbackBindHost, isSameOrigin, safeTokenEquals } from "./security"
+import { isAllowedBindHost, isAllowedHostHeader, isSameOrigin, safeTokenEquals } from "./security"
 import { randomUUID } from "node:crypto"
 import { basename } from "node:path"
 import { createTask, updateTask, type TaskInput, type TaskPatch, type TaskColumn } from "../domain/task"
@@ -42,7 +42,7 @@ export type ForemanServer = {
 
 function createFastify(options: ForemanServerOptions): FastifyInstance {
   const host = options.host ?? "127.0.0.1"
-  if (!isLoopbackBindHost(host)) throw new Error("Foreman can bind only to IPv4 or IPv6 loopback addresses")
+  if (!isAllowedBindHost(host)) throw new Error("Foreman can bind to loopback addresses only unless container binding is explicitly enabled")
 
   const sessions = new Map<string, BrowserSession>()
   const app = fastify({
@@ -509,11 +509,17 @@ export type ForemanLoopbackServers = {
   close(): Promise<void>
 }
 
-export async function startForemanLoopback(options: Omit<ForemanServerOptions, "host"> = {}): Promise<ForemanLoopbackServers> {
-  const primary = await startForemanServer({ ...options, host: "127.0.0.1" })
+export async function startForemanLoopback(options: Omit<ForemanServerOptions, "host"> & { host?: string } = {}): Promise<ForemanLoopbackServers> {
+  const { host, ...serverOptions } = options
+  const primary = await startForemanServer({ ...serverOptions, host: host ?? "127.0.0.1" })
+  // Container deployments bind inside the isolated container network. Compose must publish
+  // that port only on a private host interface; public exposure is never configured here.
+  if (host && host !== "127.0.0.1" && host !== "::1") {
+    return { primary, url: primary.url, close: () => primary.close() }
+  }
   let ipv6: ForemanServer | undefined
   try {
-    ipv6 = await startForemanServer({ ...options, host: "::1", port: primary.address.port })
+    ipv6 = await startForemanServer({ ...serverOptions, host: "::1", port: primary.address.port })
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? error.code : undefined
     if (code !== "EAFNOSUPPORT" && code !== "EADDRNOTAVAIL" && code !== "EPROTONOSUPPORT") {

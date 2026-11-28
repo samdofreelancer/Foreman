@@ -1,0 +1,31 @@
+services:
+  foreman:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: foreman:local
+    pull_policy: never
+    container_name: foreman
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    ports:
+      - "${FOREMAN_BIND_ADDRESS:-127.0.0.1}:${FOREMAN_PORT:-4318}:4318"
+    environment:
+      FOREMAN_PORT: "4318"
+      FOREMAN_HOST: "0.0.0.0"
+      FOREMAN_ALLOW_NON_LOOPBACK_BIND: "1"
+      FOREMAN_DATA_DIR: /data
+      FOREMAN_NO_OPEN: "1"
+      FOREMAN_TRUSTED_HTTPS_ORIGIN: ${FOREMAN_TRUSTED_HTTPS_ORIGIN:-}
+      FOREMAN_HOST_AGENT_URL: http://host.docker.internal:4320
+      FOREMAN_HOST_AGENT_TOKEN: ${FOREMAN_HOST_AGENT_TOKEN:-}
+    volumes:
+      - foreman-data:/data
+    extra_hosts:
+      - "host.docker.internal:${FOREMAN_WINDOWS_HOST:-host-gateway}"
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  foreman-data:

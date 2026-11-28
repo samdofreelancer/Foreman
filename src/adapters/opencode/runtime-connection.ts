@@ -3,6 +3,7 @@ import type { SecretStore } from "../../application/ports/secret-store"
 import { randomBytes } from "node:crypto"
 import { createOpenCodeClient, OpenCodeGatewayAdapter, validateOpenCodeEndpoint } from "./gateway"
 import { ManagedOpenCodeProcess } from "./managed-process"
+import { RemoteManagedOpenCodeProcess } from "./remote-managed-process"
 
 export type ExternalConnection = { mode: "external"; endpoint: string; secretKey?: string; username?: string }
 export type ManagedConnection = { mode: "managed"; executable?: string }
@@ -10,6 +11,7 @@ export interface ManagedProcessPort {
   start(options: { executable?: string; username: string; password: string; healthCheck: (endpoint: string) => Promise<boolean> }): Promise<string>
   stop(): Promise<void>
   readonly url?: string
+  readonly authorizationHeader?: string
 }
 export type GatewayFactory = (endpoint: string, password?: string, username?: string) => OpenCodeGateway
 
@@ -21,8 +23,15 @@ export class RuntimeConnection {
   private activeEndpoint?: string
 
   constructor(private readonly secrets: SecretStore, options: { managed?: ManagedProcessPort; createGateway?: GatewayFactory } = {}) {
-    this.managed = options.managed ?? new ManagedOpenCodeProcess()
-    this.createGateway = options.createGateway ?? ((endpoint, password, username) => new OpenCodeGatewayAdapter(createOpenCodeClient(endpoint, password ? { password, username } : undefined)))
+    this.managed = options.managed ?? (process.platform !== "win32" && process.env.FOREMAN_HOST_AGENT_TOKEN
+      ? new RemoteManagedOpenCodeProcess()
+      : new ManagedOpenCodeProcess())
+    this.createGateway = options.createGateway ?? ((endpoint, password, username) => {
+      // The Windows Host Agent authenticates its private capability URL and injects
+      // OpenCode Basic Auth locally; never send the OpenCode password over HTTP/WSL.
+      const credentials = this.managed instanceof RemoteManagedOpenCodeProcess ? undefined : password ? { password, username } : undefined
+      return new OpenCodeGatewayAdapter(createOpenCodeClient(endpoint, credentials, this.managed.authorizationHeader))
+    })
   }
   private readonly createGateway: GatewayFactory
 

@@ -55,6 +55,69 @@ from the command palette. The watch build reloads the local GUI plugin.
 - Send follow-ups from the card; they use queue delivery while the run is working.
 - Drag reviewed tasks to Done. A working run requires confirmation because the session continues.
 
+## Docker deployment and automatic startup
+
+Foreman runs in Docker Compose. SQLite lives in the named `foreman-data` volume and the
+container uses `restart: unless-stopped`. The app listens on port `4318` inside the
+container; the Docker port is published only on the current WSL2 Ubuntu VM address. On this Windows setup,
+`scripts/start-foreman-docker.ps1` starts Ubuntu/ Docker Engine, starts the Compose app,
+then refreshes a small Windows TCP relay and Tailscale Serve target for the current WSL IP.
+
+The existing Tailscale HTTPS endpoint on port 443 is intentionally left unchanged.
+Phone access remains tailnet-only at:
+
+`https://desktop-3ta52l8.tail881468.ts.net:8443/`
+
+Build the image, then start the stack through the Windows startup script. The script
+creates/preserves the private Host Agent token, refreshes the WSL gateway address,
+starts the Windows Host Agent, and then starts Foreman:
+
+```powershell
+docker compose build
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/start-foreman-docker.ps1
+```
+
+To inspect or stop:
+
+```powershell
+docker compose ps
+docker compose logs -f foreman
+docker compose down       # keeps the named data volume
+```
+
+To install Windows startup automation (run once in PowerShell):
+
+```powershell
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$projectRoot = (Get-Location).Path
+$script = Join-Path $projectRoot 'scripts\start-foreman-docker.ps1'
+$pwsh = (Get-Command pwsh).Source
+$action = New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`""
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName 'Foreman Docker' -Action $action -Trigger $trigger -Principal $principal -Description 'Start Foreman Docker and refresh its Tailscale route at Windows sign-in.' -Force
+```
+
+The WSL Ubuntu distro must retain its `/usr/local/sbin/docker-boot` startup hook. The
+phone must be connected to the same Tailscale tailnet. The app container does not bundle
+OpenCode. **Managed runtime remains the normal mode:** the Windows Host Agent discovers
+the OpenCode Desktop 2.4.x CLI and starts/stops the server on demand. OpenCode itself binds
+to Windows loopback; the Host Agent reverse-proxies it through its existing
+`host.docker.internal:4320` listener. Each runtime receives a fresh 256-bit bearer token
+in the HTTP Authorization header; the token is not placed in the URL and is invalidated
+when the runtime stops. The OpenCode password is generated on Windows and never crosses
+the Docker/WSL boundary. OpenCode 2.x currently supports Basic Auth for its native server
+authentication, so the Host Agent injects that credential only on its loopback request
+to `127.0.0.1`; it is never exposed to Docker or the network.
+The Host Agent listener binds only to the private Windows↔WSL gateway address, not the LAN
+interface. A separate 256-bit bearer token is generated and stored in the ignored `.env`
+file; do not commit or share that file.
+
+The Host Agent is started automatically by `scripts/start-foreman-docker.ps1` and should
+be running before creating a Managed runtime session. If it is unavailable, restart the
+stack with that script. External runtime remains available for explicitly configured
+user-owned OpenCode servers.
+
 ## Fixed decisions
 
 - **Form factor:** one OpenCode Desktop GUI plugin, package `foreman`, id `foreman`.

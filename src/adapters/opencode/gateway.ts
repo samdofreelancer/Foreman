@@ -14,16 +14,18 @@ export function validateOpenCodeEndpoint(value: string): string {
   return url.toString().replace(/\/$/, "")
 }
 
-export function createOpenCodeClient(endpoint: string, credentials?: OpenCodeCredentials): OpenCodeClient {
+export function createOpenCodeClient(endpoint: string, credentials?: OpenCodeCredentials, authorizationHeader?: string): OpenCodeClient {
   const baseUrl = validateOpenCodeEndpoint(endpoint)
   const parsed = new URL(baseUrl)
   const loopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]"
   if (credentials?.password && parsed.protocol !== "https:" && !loopback) {
     throw new Error("OpenCode credentials require HTTPS for non-loopback endpoints")
   }
-  const headers = credentials?.password
-    ? { Authorization: `Basic ${Buffer.from(`${credentials.username ?? "opencode"}:${credentials.password}`).toString("base64")}` }
-    : undefined
+  const headers = authorizationHeader
+    ? { Authorization: authorizationHeader }
+    : credentials?.password
+      ? { Authorization: `Basic ${Buffer.from(`${credentials.username ?? "opencode"}:${credentials.password}`).toString("base64")}` }
+      : undefined
   return OpenCode.make({ baseUrl, headers })
 }
 

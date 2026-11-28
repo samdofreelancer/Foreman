@@ -1,0 +1,12 @@
+.git
+.specify
+specs
+docs
+node_modules
+dist
+test-results
+playwright-report
+.env
+.docker-migration
+*.sqlite
+*.sqlite-*

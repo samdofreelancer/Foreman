@@ -139,6 +139,13 @@ export function App() {
           <footer class="page-footer"><span><span class="status-dot status-online"/> Foreman is running locally</span><span>Your data stays on this machine</span></footer>
         </main>
       </div>
+      <nav class="mobile-tab-bar" aria-label="Primary tabs">
+        <For each={routes}>{(item) => <a href={item.path} classList={{ "mobile-tab": true, active: route() === item.path }} aria-current={route() === item.path ? "page" : undefined} onClick={(event) => { event.preventDefault(); navigate(item.path) }}>
+          <span class="mobile-tab-icon"><Icon name={item.icon} size={20}/></span><span class="mobile-tab-label">{item.label}</span>
+          <Show when={item.path === "/inbox" && inboxCount() > 0}><span class="mobile-tab-count">{inboxCount()}</span></Show>
+        </a>}</For>
+        <a classList={{ "mobile-tab": true, active: route() === "/settings" }} href="/settings" aria-current={route() === "/settings" ? "page" : undefined} onClick={(event) => { event.preventDefault(); navigate("/settings") }}><span class="mobile-tab-icon"><Icon name="settings" size={20}/></span><span class="mobile-tab-label">Settings</span></a>
+      </nav>
     </div>
   </Show>
 }

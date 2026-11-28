@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { startForemanServer, type ForemanServer } from "../src/server/server"
+import { isAllowedHostHeader, isSameOrigin } from "../src/server/security"
 
 const servers: ForemanServer[] = []
 
@@ -36,12 +37,43 @@ afterEach(async () => {
 })
 
 describe("standalone server security boundary", () => {
+  it("allows only the explicitly configured HTTPS tailnet origin through the proxy", () => {
+    const previous = process.env.FOREMAN_TRUSTED_HTTPS_ORIGIN
+    process.env.FOREMAN_TRUSTED_HTTPS_ORIGIN = "https://foreman.example.ts.net:8443"
+    try {
+      expect(isAllowedHostHeader("foreman.example.ts.net:8443", 4318)).toBe(true)
+      expect(isSameOrigin("https://foreman.example.ts.net:8443", "foreman.example.ts.net:8443")).toBe(true)
+      expect(isAllowedHostHeader("attacker.example:8443", 4318)).toBe(false)
+      expect(isSameOrigin("https://attacker.example:8443", "foreman.example.ts.net:8443")).toBe(false)
+      expect(isSameOrigin("http://foreman.example.ts.net:8443", "foreman.example.ts.net:8443")).toBe(false)
+    } finally {
+      if (previous === undefined) delete process.env.FOREMAN_TRUSTED_HTTPS_ORIGIN
+      else process.env.FOREMAN_TRUSTED_HTTPS_ORIGIN = previous
+    }
+  })
+
   it("binds only to an explicit loopback address", async () => {
     const server = await start({ host: "127.0.0.1" })
     expect(server.address.address).toBe("127.0.0.1")
     expect(server.address.family).toBe("IPv4")
     await expect(startForemanServer({ host: "0.0.0.0" as "127.0.0.1", port: 0, logger: false }))
       .rejects.toThrow(/loopback/i)
+  })
+
+  it("allows a wildcard bind only when container mode is explicitly enabled", async () => {
+    const previous = process.env.FOREMAN_ALLOW_NON_LOOPBACK_BIND
+    delete process.env.FOREMAN_ALLOW_NON_LOOPBACK_BIND
+    await expect(startForemanServer({ host: "0.0.0.0", port: 0, logger: false }))
+      .rejects.toThrow(/loopback/i)
+    process.env.FOREMAN_ALLOW_NON_LOOPBACK_BIND = "1"
+    try {
+      const server = await startForemanServer({ host: "0.0.0.0", port: 0, logger: false })
+      servers.push(server)
+      expect(server.address.address).toBe("0.0.0.0")
+    } finally {
+      if (previous === undefined) delete process.env.FOREMAN_ALLOW_NON_LOOPBACK_BIND
+      else process.env.FOREMAN_ALLOW_NON_LOOPBACK_BIND = previous
+    }
   })
 
   it("supports IPv6 loopback when the host operating system provides it", async () => {
